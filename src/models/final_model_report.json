@@ -1,0 +1,82 @@
+{
+  "model": "xgboost + isotonic calibration",
+  "threshold": 0.1,
+  "cost_model": {
+    "readmission_cost": 15000,
+    "intervention_cost": 300,
+    "preventable_fraction": 0.2
+  },
+  "val": {
+    "val_pr_auc": 0.2355523681514311,
+    "val_roc_auc": 0.6799091701819695,
+    "val_recall_at_p30": 0.2048894062863795,
+    "val_brier": 0.09686360898888144,
+    "at_threshold": {
+      "threshold": 0.1,
+      "flag_rate": 0.4721549636803874,
+      "precision": 0.16723646723646723,
+      "recall": 0.6833527357392316,
+      "net_savings_per_1000": 95238.09523809524
+    }
+  },
+  "test": {
+    "test_pr_auc": 0.2438016763932926,
+    "test_roc_auc": 0.6880976658860978,
+    "test_recall_at_p30": 0.24449732302201072,
+    "test_brier": 0.09454454840308074,
+    "at_threshold": {
+      "threshold": 0.1,
+      "flag_rate": 0.4717679520829127,
+      "precision": 0.16790299572039943,
+      "recall": 0.7001784651992862,
+      "net_savings_per_1000": 96103.37169392286
+    }
+  },
+  "sensitivity": [
+    {
+      "preventable": 0.1,
+      "readmission_cost": 10000,
+      "threshold": 0.3
+    },
+    {
+      "preventable": 0.1,
+      "readmission_cost": 15000,
+      "threshold": 0.2
+    },
+    {
+      "preventable": 0.1,
+      "readmission_cost": 20000,
+      "threshold": 0.15
+    },
+    {
+      "preventable": 0.2,
+      "readmission_cost": 10000,
+      "threshold": 0.15
+    },
+    {
+      "preventable": 0.2,
+      "readmission_cost": 15000,
+      "threshold": 0.1
+    },
+    {
+      "preventable": 0.2,
+      "readmission_cost": 20000,
+      "threshold": 0.075
+    },
+    {
+      "preventable": 0.3,
+      "readmission_cost": 10000,
+      "threshold": 0.1
+    },
+    {
+      "preventable": 0.3,
+      "readmission_cost": 15000,
+      "threshold": 0.067
+    },
+    {
+      "preventable": 0.3,
+      "readmission_cost": 20000,
+      "threshold": 0.05
+    }
+  ]
+}

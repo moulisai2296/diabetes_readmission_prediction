@@ -17,6 +17,7 @@ Format for each entry:
 1. [DVC — versioning data like code](#1-dvc--versioning-data-like-code)
 2. [MLflow — a lab notebook for experiments](#2-mlflow--a-lab-notebook-for-experiments)
 3. [Grouped splitting — leakage you can't see in the metrics](#3-grouped-splitting--leakage-you-cant-see-in-the-metrics)
+4. [Probability calibration — scores that mean what they say](#4-probability-calibration--scores-that-mean-what-they-say)
 
 ---
 
@@ -208,3 +209,61 @@ Mechanics in this project:
 > before?" Patients, users, devices, documents — if any entity owns multiple rows,
 > split by the entity. If you're unsure whether grouping matters, count rows per
 > entity; any answer above 1 means it does.
+
+## 4. Probability calibration — scores that mean what they say
+
+**Context:** Stage 3, `src/models/finalize.py`. Our class-weighted XGBoost ranked
+patients well (PR-AUC 0.239) but its "probabilities" were inflated: Brier score 0.206,
+*worse than just always predicting the 11.4% base rate* (Brier 0.101). Isotonic
+calibration dropped Brier to 0.097 without touching the ranking.
+
+**Principle:** *A risk score shown to a human is a promise — "30%" must mean roughly
+3 in 10. Class weighting breaks that promise; calibration restores it.*
+
+### Explanation / analogy
+
+A bathroom scale that always reads **5 kg heavy** is still perfectly good for telling
+which of two people is heavier (ranking intact) — but you wouldn't quote its number as
+your weight. Class weighting (`scale_pos_weight ≈ 7.8`) does exactly this to a
+classifier: to fight imbalance it makes positives count ~8× in the loss, so the model
+behaves as if readmission were ~8× more common — every probability reads "heavy".
+
+Calibration re-labels the scale's dial. **Isotonic regression** learns a monotonic
+mapping from raw score → honest probability on held-out folds: among patients scored
+~0.6, what fraction *actually* readmitted? That fraction becomes the new output.
+Monotonic means order is preserved — ROC-AUC and PR-AUC are unchanged by construction;
+only the dial's numbers move.
+
+Mechanics here: `CalibratedClassifierCV(method="isotonic", cv=<patient-grouped folds>)`
+— fit the model on 2/3 of train, learn the mapping on the held-out 1/3, rotate, then
+average. Grouped folds again: a patient straddling the model-fold and the
+calibration-fold would leak. (`CalibratedClassifierCV` has no `groups=` argument — we
+pass precomputed `StratifiedGroupKFold` splits as `cv`.)
+
+Why it matters doubly here: our **threshold is cost-based** — "flag when
+p × 0.20 × $15,000 > $300" only computes correctly if p is an honest probability.
+With inflated scores the formula would flag nearly everyone.
+
+**Measuring it:** Brier score = mean (predicted − actual)² — lower is better, and the
+"always predict base rate" score (≈ prevalence × (1−prevalence) = 0.101 here) is the
+bar to beat. A calibration curve (predicted bucket vs observed frequency) shows *where*
+the dial lies; ours is logged as an MLflow artifact.
+
+### Advantages
+
+1. Scores are interpretable as real risk — essential when humans act on them.
+2. Cost/utility-based thresholds become mathematically valid.
+3. Free lunch for ranking: monotonic remapping leaves AUC metrics untouched.
+
+### Tradeoffs
+
+- Needs held-out data (CV folds) — slightly less data per model fit.
+- Isotonic can overfit small calibration sets (<~1000 samples; we have 23k per fold).
+  Platt scaling (sigmoid) is the low-data alternative.
+- An ensemble of 3 calibrated models = 3× inference cost (negligible here).
+
+### Rule of thumb
+
+> If you reweighted, resampled, or otherwise fought class imbalance, your
+> probabilities are lying. Check Brier against the "always predict the base rate"
+> bar; if you lose, calibrate before anyone reads your scores as percentages.

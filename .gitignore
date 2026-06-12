@@ -1,0 +1,29 @@
+# Data — DVC-tracked, never in git (DVC writes its own .gitignore entries
+# next to tracked files; only the small .dvc pointer files are committed)
+
+# Course material — too big for git
+*.pdf
+
+# Environments
+.venv/
+
+# Experiment tracking / model artifacts
+mlruns/
+mlartifacts/
+*.joblib
+*.pkl
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Secrets — never commit credentials
+.env
+*.json.key
+*-credentials.json
+
+# OS / IDE
+.DS_Store
+Thumbs.db

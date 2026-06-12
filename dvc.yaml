@@ -1,9 +1,17 @@
 stages:
   clean:
-    cmd: uv run python src/data/clean.py
+    cmd: uv run python -m src.data.clean
     deps:
       - src/data/clean.py
       - data_folder/diabetic_data.csv
       - data_folder/IDS_mapping.csv
     outs:
       - data_folder/processed/cleaned.parquet
+  features:
+    cmd: uv run python -m src.features.build_features
+    deps:
+      - src/features/build_features.py
+      - src/data/clean.py
+      - data_folder/processed/cleaned.parquet
+    outs:
+      - data_folder/processed/features.parquet

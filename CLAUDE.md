@@ -130,6 +130,8 @@ you anything**.
   (`feat/<stage>-<topic>`), pushed to origin; the **user raises the PR** and merges.
   After merge, branch the next step from a freshly pulled `main`.
 - Generic concepts we use (DVC, MLflow, …) get an entry in `docs/DESIGN_NOTES.md`.
+- Every stage gets a detailed what/why/how entry in `docs/PROJECT_JOURNAL.md`
+  (user's learning record) — written in the same branch as the stage's code.
 
 ## Working agreements for this project
 

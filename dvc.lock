@@ -1,7 +1,7 @@
 schema: '2.0'
 stages:
   clean:
-    cmd: uv run python src/data/clean.py
+    cmd: uv run python -m src.data.clean
     deps:
     - path: data_folder/IDS_mapping.csv
       hash: md5
@@ -13,10 +13,30 @@ stages:
       size: 19159383
     - path: src/data/clean.py
       hash: md5
-      md5: 4c6a69f08e004d6ad803a7321e41c49c
-      size: 7520
+      md5: 35ca235ef155531d331a6374e11414fe
+      size: 7705
     outs:
     - path: data_folder/processed/cleaned.parquet
       hash: md5
       md5: b1bcc9811ab36d546b097810917d84b6
       size: 2684600
+  features:
+    cmd: uv run python -m src.features.build_features
+    deps:
+    - path: data_folder/processed/cleaned.parquet
+      hash: md5
+      md5: b1bcc9811ab36d546b097810917d84b6
+      size: 2684600
+    - path: src/data/clean.py
+      hash: md5
+      md5: 35ca235ef155531d331a6374e11414fe
+      size: 7705
+    - path: src/features/build_features.py
+      hash: md5
+      md5: 392e974dc1b0e50c5befb2100a7070c5
+      size: 6591
+    outs:
+    - path: data_folder/processed/features.parquet
+      hash: md5
+      md5: 2f352fa106b0ce982e5c831c92306258
+      size: 2553471

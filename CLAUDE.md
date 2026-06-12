@@ -123,6 +123,14 @@ launches the service in one or two commands, hits the endpoint and gets a sensib
 score with explanations, opens the dashboard, and reads the model card — **without asking
 you anything**.
 
+## Git workflow
+
+- Remote: https://github.com/moulisai2296/diabetes_readmission_prediction (`origin`)
+- **Never commit directly to `main`.** One feature branch per step
+  (`feat/<stage>-<topic>`), pushed to origin; the **user raises the PR** and merges.
+  After merge, branch the next step from a freshly pulled `main`.
+- Generic concepts we use (DVC, MLflow, …) get an entry in `docs/DESIGN_NOTES.md`.
+
 ## Working agreements for this project
 
 - Interactive style: discuss and agree on decisions before implementing them; when

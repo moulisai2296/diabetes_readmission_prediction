@@ -1,0 +1,22 @@
+schema: '2.0'
+stages:
+  clean:
+    cmd: uv run python src/data/clean.py
+    deps:
+    - path: data_folder/IDS_mapping.csv
+      hash: md5
+      md5: e17b3b3ffa348d0a47a9bb3c92b218b3
+      size: 2547
+    - path: data_folder/diabetic_data.csv
+      hash: md5
+      md5: 502f0cc004e4cf71536ec2e61596e42f
+      size: 19159383
+    - path: src/data/clean.py
+      hash: md5
+      md5: 4c6a69f08e004d6ad803a7321e41c49c
+      size: 7520
+    outs:
+    - path: data_folder/processed/cleaned.parquet
+      hash: md5
+      md5: b1bcc9811ab36d546b097810917d84b6
+      size: 2684600

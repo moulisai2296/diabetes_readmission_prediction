@@ -1,0 +1,9 @@
+stages:
+  clean:
+    cmd: uv run python src/data/clean.py
+    deps:
+      - src/data/clean.py
+      - data_folder/diabetic_data.csv
+      - data_folder/IDS_mapping.csv
+    outs:
+      - data_folder/processed/cleaned.parquet

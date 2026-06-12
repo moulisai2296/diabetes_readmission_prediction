@@ -15,6 +15,8 @@ Format for each entry:
 ## Index
 
 1. [DVC — versioning data like code](#1-dvc--versioning-data-like-code)
+2. [MLflow — a lab notebook for experiments](#2-mlflow--a-lab-notebook-for-experiments)
+3. [Grouped splitting — leakage you can't see in the metrics](#3-grouped-splitting--leakage-you-cant-see-in-the-metrics)
 
 ---
 
@@ -100,3 +102,109 @@ match.**
 > version, commit a ticket (`.dvc` pointer), not the file — and if the file is
 > *produced* by code, make it a `dvc.yaml` stage output instead, so the pipeline,
 > not a human, keeps it fresh.
+
+## 2. MLflow — a lab notebook for experiments
+
+**Context:** Stage 3. We train a logistic baseline plus tuned XGBoost and LightGBM,
+and must "track every experiment in MLflow" and later serve one registered winner.
+`src/models/train.py` logs every run to a local SQLite-backed MLflow store
+(`mlflow.db`, gitignored).
+
+**Principle:** *If an experiment isn't recorded with its params, code and data
+versions, it never happened — you can't compare, reproduce, or defend it.*
+
+### Explanation / analogy
+
+A chemist doesn't memorize "attempt #37 was the good one" — every attempt goes into a
+**lab notebook**: ingredients (hyperparameters), procedure (code version), conditions
+(data version), and measurements (metrics). Reviewers read the notebook, not the
+chemist's memory.
+
+MLflow is that notebook, with four parts:
+
+1. **Tracking** — each training attempt is a *run*; we log params (model type, tuned
+   hyperparameters), metrics (val PR-AUC, recall@precision, Brier), and artifacts
+   (the fitted model itself). Runs group into an *experiment*
+   (`diabetes-readmission`). `uv run mlflow ui --backend-store-uri sqlite:///mlflow.db`
+   gives a sortable table — the baseline-vs-advanced comparison the brief grades.
+2. **Backend store** — where runs/metrics live. MLflow ≥3.13 retired the `./mlruns`
+   file store (we hit this: it raised "maintenance mode" and refused); a SQLite file
+   is the lightweight replacement. Artifacts (model binaries) still go to a folder.
+3. **Models** — a saved model with its signature (input schema) and environment, so
+   serving loads exactly what training produced.
+4. **Registry** — named, versioned models ("readmission-risk v3") with stage labels;
+   this is what deployment and the rollback plan point at later.
+
+DVC and MLflow are complementary notebooks: DVC remembers *data* versions along the
+pipeline; MLflow remembers *attempts* and their outcomes.
+
+### Advantages
+
+1. Comparisons are honest — same metrics, computed by the same code, side by side.
+2. Reproducibility — a run pins hyperparameters + code + model binary together.
+3. The registry gives deployment a stable name to pull, decoupled from file paths.
+4. Zero infra here: one SQLite file + an artifacts folder, both gitignored.
+
+### Tradeoffs
+
+- Local store = single machine; a team needs a shared tracking server (infra + auth).
+- Logging discipline is on you — anything not logged (the random seed you "just
+  tried") is lost; autolog helps but logs noise too.
+- The SQLite store doesn't scale to thousands of concurrent runs (fine here).
+
+### Rule of thumb
+
+> The moment you train a *second* model variant, stop comparing from memory or
+> terminal scrollback — log both to a tracker and let the table decide.
+
+## 3. Grouped splitting — leakage you can't see in the metrics
+
+**Context:** Stage 3, `src/models/split.py`. 23.5% of patients have multiple hospital
+encounters — 46.2% of all rows. We split train/val/test by `patient_nbr`
+(GroupShuffleSplit), and tune with `StratifiedGroupKFold`, so every patient lives in
+exactly one partition.
+
+**Principle:** *Split on the unit you must generalize to — here, the patient —
+not on the row.*
+
+### Explanation / analogy
+
+Imagine studying for an exam with a stack of practice questions, where half the
+questions appear **twice in the stack**. If you randomly deal the stack into
+"practice" and "mock exam" piles, many mock-exam questions are ones you already saw
+in practice. You'll ace the mock exam — and learn nothing about the real one.
+
+Rows of the same patient are near-duplicate questions: same demographics, same
+chronic conditions, often the same medications. A model can score well on a
+row-split validation set simply by *recognizing the patient*, not by learning what
+makes anyone readmission-prone. The trap: **metrics look great and nothing visibly
+fails** — the lie only surfaces in production, where every patient is new.
+
+Mechanics in this project:
+- `GroupShuffleSplit` deals out *patients* (70/15/15), and each patient's rows follow
+  them into their split. An assert + 4 tests enforce zero overlap.
+- Inside training, hyperparameter search uses `StratifiedGroupKFold`: grouped (no
+  patient straddles CV folds) *and* stratified (each fold keeps ~11.4% positives —
+  important when the positive class is rare).
+- The test split is produced once, here, and no training code path reads it.
+
+### Advantages
+
+1. Validation metrics estimate performance on *unseen patients* — the deployment
+   reality at discharge time.
+2. Honest model comparison — leakage would flatter the more memorization-capable
+   model (the boosted trees) and bias the baseline-vs-advanced verdict.
+
+### Tradeoffs
+
+- Slightly unbalanced split sizes (patients carry different row counts) — ours landed
+  within 0.2% of 70/15/15 anyway.
+- Stratification + grouping together is approximate; target rates across splits vary
+  a little (11.3–11.6% here — acceptable).
+
+### Rule of thumb
+
+> Before any split, ask: "what entity must this model work on that it has never seen
+> before?" Patients, users, devices, documents — if any entity owns multiple rows,
+> split by the entity. If you're unsure whether grouping matters, count rows per
+> entity; any answer above 1 means it does.

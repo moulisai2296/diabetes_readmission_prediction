@@ -10,6 +10,7 @@
 # Experiment tracking / model artifacts
 mlruns/
 mlartifacts/
+mlflow.db
 *.joblib
 *.pkl
 

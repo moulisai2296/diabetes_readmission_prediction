@@ -33,10 +33,27 @@ stages:
       size: 7705
     - path: src/features/build_features.py
       hash: md5
-      md5: 392e974dc1b0e50c5befb2100a7070c5
-      size: 6591
+      md5: 042f70694ac58f3c2038199382bd9426
+      size: 6761
     outs:
     - path: data_folder/processed/features.parquet
       hash: md5
       md5: 2f352fa106b0ce982e5c831c92306258
       size: 2553471
+  split:
+    cmd: uv run python -m src.models.split
+    deps:
+    - path: data_folder/processed/features.parquet
+      hash: md5
+      md5: 2f352fa106b0ce982e5c831c92306258
+      size: 2553471
+    - path: src/models/split.py
+      hash: md5
+      md5: c92da15a71368693bbf289f9ad7bbd28
+      size: 2562
+    outs:
+    - path: data_folder/processed/splits
+      hash: md5
+      md5: 047415ecb97a33dc65d2a46f7338b2d7.dir
+      size: 2626290
+      nfiles: 3

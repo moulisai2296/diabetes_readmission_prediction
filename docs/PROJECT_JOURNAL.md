@@ -279,3 +279,66 @@ src.api.main:app`.
 
 *Next: Stage 4 part 2 — Dockerfile, docker-compose with Prometheus + Grafana, then
 GCP Cloud Run (needs Docker Desktop, installing).*
+
+## Stage 4 — Package & Deploy (part 2: containers + local monitoring stack)
+
+### What we did
+1. **`Dockerfile`** — multi-step build on `ghcr.io/astral-sh/uv:python3.12-bookworm-slim`:
+   copy `pyproject.toml` + `uv.lock` first and `uv sync --frozen --no-install-project
+   --no-dev` (cached unless the lockfile changes), *then* copy `src/` and `artifacts/`.
+   `HEALTHCHECK` hits the app's own `/health`; entrypoint is uvicorn on `:8000`.
+2. **`.dockerignore`** — keeps the build context small (drops `.git`, `.venv`, `mlruns`,
+   `data_folder`, notebooks, tests, docs) but **deliberately keeps `artifacts/`** — the
+   image needs the model + feature spec.
+3. **`docker-compose.yml`** — three services: `api` (built locally), `prometheus`
+   (scrapes the API), `grafana` (auto-provisioned datasource + dashboard). All
+   `restart: unless-stopped`.
+4. **`monitoring/`** — `prometheus.yml` scrape config, Grafana provisioning for the
+   Prometheus datasource and a dashboard file, and the **Readmission Risk API**
+   dashboard (request rate, p95 latency, flag rate, mean predicted risk).
+5. **Brought the whole stack up on one machine and verified it end to end.**
+
+### The proof it works (whole stack, real HTTP)
+- `docker compose up -d` → all three containers `Up`; API reports `health: healthy`.
+- `POST /predict` (example encounter) → **31.4% risk, flagged=true** with SHAP factors —
+  identical to the bare-uvicorn run, confirming the container carries a correct model.
+- Prometheus target `readmission-api` → **up**; the dashboard's exact PromQL resolves
+  against live data (`predict_requests_total`=31, p95 latency ≈ 0.094 s).
+- Grafana: Prometheus datasource provisioned as default, dashboard
+  `uid=readmission-api` loaded.
+
+### Why — the key design decisions
+- **Snapshot artifacts into the image, not MLflow.** Same decision as part 1, now paying
+  off: the container is self-contained (model + spec), no sqlite/`mlruns` baggage, no
+  registry call at runtime.
+- **Provision Grafana as code.** Datasource + dashboard live in `monitoring/` and are
+  mounted in — the dashboard exists the moment the stack boots, so "clone → one command
+  → working dashboard" (the definition of done) holds with no manual clicking.
+- **Server-side feature engineering pays its second dividend.** Because the image owns
+  `engineer()`, the only things that vary between bare-metal and container runs are
+  irrelevant to predictions — the 31.4% matched exactly.
+
+### How — the non-obvious mechanics (the Docker Hub pull saga)
+The build worked first try (base from GHCR + deps from PyPI), but `docker compose up`
+**could not pull `prom/prometheus` or `grafana/grafana`** — every attempt died with
+`httpReadSeeker ... production.cloudfront.docker.com ...: EOF`. The debugging chain:
+- **Not the internet / not size.** `curl`/`wget` downloaded the *exact* signed CloudFront
+  blob URLs fine — including the largest 58 MB Prometheus layer, over both HTTP/1.1 and
+  HTTP/2, from both the Ubuntu WSL distro and Docker's own `docker-desktop` VM.
+- **Not concurrency, not the engine VM's network.** `wsl --terminate docker-desktop` and
+  `max-concurrent-downloads: 1` both failed to help.
+- **Isolated to one path.** `docker pull` from **GHCR worked**; `docker pull` from
+  **Docker Hub failed** — the only difference being Docker Hub redirects blob data to AWS
+  CloudFront, and something on this network resets *containerd's* connections to that one
+  CDN (while curl/wget survive it).
+- **Fix:** add `"registry-mirrors": ["https://mirror.gcr.io"]` to the Docker Engine
+  config. Google's pull-through cache serves the same images off non-AWS infra; both
+  images then pulled on the first try and the stack came up.
+
+Reproduce: `python -m src.api.export_model` (writes `artifacts/`) → `docker compose up
+--build` → API `http://localhost:8000/docs`, Prometheus `:9090`, Grafana `:3000`
+(admin/admin). If pulls fail with the CloudFront EOF, the `registry-mirrors` line above
+is the fix.
+
+*Next: Stage 4 part 3 — GCP Cloud Run (push image to Artifact Registry via Cloud Build,
+deploy, billing alert, rollback plan).*

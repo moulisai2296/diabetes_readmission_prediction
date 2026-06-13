@@ -1,0 +1,22 @@
+# Keep the build context small and the image clean.
+# NOTE: artifacts/ is intentionally NOT ignored — the image needs the model.
+
+.git/
+.venv/
+.dvc/
+mlruns/
+mlartifacts/
+mlflow.db
+data_folder/
+notebooks/
+tests/
+docs/
+*.pdf
+
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+
+.env
+*-credentials.json

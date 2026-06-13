@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Diabetes 30-Day Readmission Risk — Demo</title>
+<style>
+  :root { --bg:#d7e9dd; --card:#ffffff; --panel:#eef5f0; --muted:#5a6f63; --line:#c2d6c9;
+          --text:#16261d; --accent:#0b6b4f; --green:#15803d; --red:#dc2626; --amber:#d97706; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+         background:var(--bg); color:var(--text); line-height:1.4; }
+  header { padding:20px 28px; border-bottom:1px solid var(--line); background:var(--card); }
+  header h1 { margin:0; font-size:20px; color:var(--accent); }
+  header p { margin:4px 0 0; color:var(--muted); font-size:13px; }
+  .wrap { display:grid; grid-template-columns:1.4fr 1fr; gap:24px; padding:24px 28px;
+          max-width:1200px; }
+  @media (max-width:900px){ .wrap{ grid-template-columns:1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px;
+          box-shadow:0 1px 3px rgba(11,107,79,.08); }
+  h2 { font-size:14px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted);
+       margin:0 0 14px; }
+  fieldset { border:1px solid var(--line); border-radius:8px; margin:0 0 16px; padding:12px 14px; }
+  legend { color:var(--accent); font-size:12px; padding:0 6px; text-transform:uppercase; letter-spacing:.05em; }
+  .grid { display:grid; grid-template-columns:repeat(2,1fr); gap:10px 14px; }
+  label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--muted); }
+  input, select { background:var(--panel); color:var(--text); border:1px solid var(--line);
+                  border-radius:6px; padding:7px 8px; font-size:13px; }
+  input:focus, select:focus { outline:none; border-color:var(--accent); }
+  button { background:var(--accent); color:#ffffff; border:none; border-radius:8px;
+           padding:11px 18px; font-size:14px; font-weight:600; cursor:pointer; width:100%; }
+  button:disabled { opacity:.6; cursor:wait; }
+  .result-empty { color:var(--muted); font-size:13px; }
+  .risk-num { font-size:44px; font-weight:700; margin:4px 0; }
+  .badge { display:inline-block; padding:4px 12px; border-radius:999px; font-size:13px; font-weight:600; }
+  .badge.flag { background:rgba(220,38,38,.12); color:var(--red); border:1px solid var(--red); }
+  .badge.ok   { background:rgba(21,128,61,.12); color:var(--green); border:1px solid var(--green); }
+  .bar { height:10px; border-radius:999px; background:var(--panel); overflow:hidden; margin:10px 0 6px; }
+  .bar > div { height:100%; }
+  .meta { font-size:12px; color:var(--muted); margin-top:8px; }
+  table { width:100%; border-collapse:collapse; margin-top:14px; font-size:13px; }
+  th, td { text-align:left; padding:7px 6px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:500; font-size:11px; text-transform:uppercase; }
+  .up   { color:var(--red); }
+  .down { color:var(--green); }
+  .err { color:var(--red); font-size:13px; white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Diabetes 30-Day Readmission Risk</h1>
+  <p>Enter a discharged patient's encounter; the model returns the calibrated risk, a follow-up flag, and the factors driving the score.</p>
+</header>
+
+<div class="wrap">
+  <form id="form" class="card">
+    <fieldset>
+      <legend>Demographics</legend>
+      <div class="grid">
+        <label>Race
+          <select name="race">
+            <option>Caucasian</option><option>AfricanAmerican</option><option>Hispanic</option>
+            <option>Asian</option><option>Other</option><option>Missing</option>
+          </select></label>
+        <label>Gender
+          <select name="gender"><option>Female</option><option>Male</option></select></label>
+        <label>Age bracket
+          <select name="age">
+            <option>[0-10)</option><option>[10-20)</option><option>[20-30)</option><option>[30-40)</option>
+            <option>[40-50)</option><option>[50-60)</option><option>[60-70)</option>
+            <option selected>[70-80)</option><option>[80-90)</option><option>[90-100)</option>
+          </select></label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>This encounter</legend>
+      <div class="grid">
+        <label>Time in hospital (days)<input type="number" name="time_in_hospital" min="1" max="14" value="9"></label>
+        <label>Lab procedures<input type="number" name="num_lab_procedures" min="0" value="25"></label>
+        <label>Procedures<input type="number" name="num_procedures" min="0" value="3"></label>
+        <label>Medications<input type="number" name="num_medications" min="0" value="16"></label>
+        <label>Diagnoses on chart<input type="number" name="number_diagnoses" min="1" value="7"></label>
+        <label>Medical specialty
+          <select name="medical_specialty">
+            <option selected>InternalMedicine</option><option>Cardiology</option>
+            <option>Emergency/Trauma</option><option>Family/GeneralPractice</option>
+            <option>Nephrology</option><option>Orthopedics</option>
+            <option>Orthopedics-Reconstructive</option><option>Radiologist</option>
+            <option>Surgery-General</option><option>Other</option><option>Missing</option>
+          </select></label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Prior 12-month utilization</legend>
+      <div class="grid">
+        <label>Outpatient visits<input type="number" name="number_outpatient" min="0" value="0"></label>
+        <label>Emergency visits<input type="number" name="number_emergency" min="0" value="0"></label>
+        <label>Inpatient visits<input type="number" name="number_inpatient" min="0" value="2"></label>
+        <label>Payer code
+          <select name="payer_code">
+            <option selected>Missing</option><option>BC</option><option>CM</option>
+            <option>CP</option><option>HM</option><option>MC</option><option>MD</option>
+            <option>OG</option><option>SP</option><option>UN</option><option>Other</option>
+          </select></label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Diagnoses & labs</legend>
+      <div class="grid">
+        <label>Primary diagnosis<select name="diag_1" class="diag"></select></label>
+        <label>Secondary diagnosis<select name="diag_2" class="diag"></select></label>
+        <label>Additional diagnosis<select name="diag_3" class="diag"></select></label>
+        <label>Max glucose serum
+          <select name="max_glu_serum"><option>NotMeasured</option><option>Norm</option><option>&gt;200</option><option>&gt;300</option></select></label>
+        <label>A1C result
+          <select name="A1Cresult"><option>NotMeasured</option><option>Norm</option><option>&gt;7</option><option>&gt;8</option></select></label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Medications</legend>
+      <div class="grid">
+        <label>Metformin
+          <select name="metformin"><option>No</option><option>Steady</option><option>Up</option><option>Down</option></select></label>
+        <label>Glyburide
+          <select name="glyburide"><option>No</option><option selected>Steady</option><option>Up</option><option>Down</option></select></label>
+        <label>Insulin
+          <select name="insulin"><option>No</option><option>Steady</option><option>Up</option><option selected>Down</option></select></label>
+        <label>Medication change
+          <select name="change"><option selected>Ch</option><option>No</option></select></label>
+        <label>On diabetes meds
+          <select name="diabetesMed"><option selected>Yes</option><option>No</option></select></label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Admission / discharge</legend>
+      <div class="grid">
+        <label>Admission type
+          <select name="admission_type">
+            <option selected>Elective</option><option>Emergency</option><option>Urgent</option>
+            <option>Newborn</option><option>Trauma Center</option><option>Unknown</option>
+          </select></label>
+        <label>Admission source
+          <select name="admission_source">
+            <option selected>Transfer from a hospital</option>
+            <option>&#32;Emergency Room</option><option>&#32;Physician Referral</option>
+            <option>Clinic Referral</option><option>&#32;Transfer from another health care facility</option>
+            <option>Unknown</option>
+          </select></label>
+        <label style="grid-column:1/-1">Discharge disposition
+          <select name="discharge_disposition">
+            <option>Discharged to home</option>
+            <option>Discharged/transferred to home with home health service</option>
+            <option>Discharged/transferred to SNF</option>
+            <option>Discharged/transferred to ICF</option>
+            <option>Discharged/transferred to another short term hospital</option>
+            <option selected>Discharged/transferred to another type of inpatient care institution</option>
+            <option>Discharged/transferred to a long term care hospital.</option>
+            <option>Left AMA</option>
+            <option>Unknown</option>
+          </select></label>
+      </div>
+    </fieldset>
+
+    <button id="submit" type="submit">Predict readmission risk</button>
+  </form>
+
+  <div class="card" id="result">
+    <h2>Prediction</h2>
+    <div class="result-empty">Fill the form and click <strong>Predict</strong>. The form is pre-loaded with a sample patient.</div>
+  </div>
+</div>
+
+<script>
+const form = document.getElementById('form');
+const result = document.getElementById('result');
+const submit = document.getElementById('submit');
+
+const NUMERIC = new Set(['time_in_hospital','num_lab_procedures','num_procedures',
+  'num_medications','number_diagnoses','number_outpatient','number_emergency','number_inpatient']);
+
+// The model uses the clinical bucket the server derives from the ICD-9 code, so each
+// option carries a representative code for that bucket (see icd9_bucket in build_features.py).
+const DIAG_OPTIONS = [
+  ['428', 'Circulatory (428)'], ['486', 'Respiratory (486)'], ['577', 'Digestive (577)'],
+  ['250.01', 'Diabetes (250.x)'], ['599', 'Genitourinary (599)'], ['197', 'Neoplasms (197)'],
+  ['850', 'Injury (850)'], ['715', 'Musculoskeletal (715)'], ['780', 'Other (780)'],
+  ['', 'Not recorded'],
+];
+const DIAG_DEFAULTS = { diag_1: '428', diag_2: '428', diag_3: '250.01' };
+document.querySelectorAll('select.diag').forEach(sel => {
+  sel.innerHTML = DIAG_OPTIONS.map(([v, label]) =>
+    `<option value="${v}"${v === DIAG_DEFAULTS[sel.name] ? ' selected' : ''}>${label}</option>`).join('');
+});
+
+function payload() {
+  const data = {};
+  for (const el of form.elements) {
+    if (!el.name) continue;
+    if (el.value === '') continue;  // omit "Not recorded" -> server treats as missing
+    data[el.name] = NUMERIC.has(el.name) ? Number(el.value) : el.value;
+  }
+  return data;
+}
+
+function riskColor(r, t) {
+  if (r >= t) return 'var(--red)';
+  if (r >= t * 0.6) return 'var(--amber)';
+  return 'var(--green)';
+}
+
+function render(res) {
+  const pct = (res.readmission_risk * 100).toFixed(1);
+  const col = riskColor(res.readmission_risk, res.threshold);
+  const badge = res.flagged
+    ? '<span class="badge flag">⚑ Flag for 30-day follow-up</span>'
+    : '<span class="badge ok">✓ No follow-up flag</span>';
+  const rows = res.top_factors.map(f => `
+    <tr>
+      <td>${f.feature}</td>
+      <td>${f.value}</td>
+      <td class="${f.direction === 'increases' ? 'up' : 'down'}">
+        ${f.direction === 'increases' ? '▲' : '▼'} ${f.contribution.toFixed(3)}
+      </td>
+    </tr>`).join('');
+  result.innerHTML = `
+    <h2>Prediction</h2>
+    <div class="risk-num" style="color:${col}">${pct}%</div>
+    <div>${badge}</div>
+    <div class="bar"><div style="width:${Math.min(pct,100)}%;background:${col}"></div></div>
+    <div class="meta">Operating threshold ${(res.threshold*100).toFixed(0)}% · model v${res.model_version}</div>
+    <table>
+      <thead><tr><th>Factor</th><th>Value</th><th>Contribution</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="3">No factors returned.</td></tr>'}</tbody>
+    </table>
+    <div class="meta">▲ pushes risk up · ▼ pulls risk down (SHAP contribution to log-odds)</div>`;
+}
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  submit.disabled = true; submit.textContent = 'Scoring…';
+  try {
+    const r = await fetch('predict', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload()),
+    });
+    if (!r.ok) {
+      const detail = await r.text();
+      result.innerHTML = `<h2>Prediction</h2><div class="err">Error ${r.status}\n${detail}</div>`;
+    } else {
+      render(await r.json());
+    }
+  } catch (err) {
+    result.innerHTML = `<h2>Prediction</h2><div class="err">Request failed: ${err}</div>`;
+  } finally {
+    submit.disabled = false; submit.textContent = 'Predict readmission risk';
+  }
+});
+</script>
+</body>
+</html>

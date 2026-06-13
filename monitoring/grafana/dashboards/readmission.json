@@ -1,0 +1,47 @@
+{
+  "title": "Readmission Risk API",
+  "uid": "readmission-api",
+  "schemaVersion": 39,
+  "timezone": "browser",
+  "refresh": "10s",
+  "time": { "from": "now-30m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Request rate (req/s)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        { "expr": "rate(predict_requests_total[1m])", "legendFormat": "requests" },
+        { "expr": "rate(predict_errors_total[1m])", "legendFormat": "errors" }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Prediction latency p95 (s)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, rate(predict_latency_seconds_bucket[5m]))", "legendFormat": "p95" }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Flag rate (share of patients flagged)",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        { "expr": "predict_flagged_total / predict_requests_total", "legendFormat": "flag rate" }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Mean predicted risk",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        { "expr": "rate(predict_risk_score_sum[5m]) / rate(predict_risk_score_count[5m])", "legendFormat": "mean risk" }
+      ]
+    }
+  ]
+}

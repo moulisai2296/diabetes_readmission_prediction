@@ -37,6 +37,7 @@ uv run pytest                    # run tests
 uv run python -m src.models.train
 uv run python -m src.models.finalize
 uv run python -m src.api.export_model            # writes artifacts/ (model + feature_spec + drift reference)
+uv run python -m src.governance.eval_report      # model evaluation report (from final_model_report.json)
 uv run python -m src.governance.fairness_audit   # governance gate (fairness report)
 uv run python -m src.governance.shap_global      # global SHAP importance
 ```

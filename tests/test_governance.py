@@ -38,6 +38,17 @@ def test_fairness_audit_feature(setup):
     assert res["max_difference"]["recall"] >= 0.0
 
 
+def test_eval_report_markdown():
+    import json
+    from src.governance.eval_report import MODEL_REPORT, build_markdown
+    if not MODEL_REPORT.exists():
+        import pytest
+        pytest.skip("final_model_report.json not present")
+    md = build_markdown(json.loads(MODEL_REPORT.read_text(encoding="utf-8")))
+    assert "# Model Evaluation Report" in md
+    assert "Net savings" in md and "Threshold sensitivity" in md
+
+
 def test_global_importance_ranks_features(setup):
     from src.governance.shap_global import global_importance
     spec, model, df = setup

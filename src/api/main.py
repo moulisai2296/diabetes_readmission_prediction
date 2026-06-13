@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 import xgboost as xgb
 from fastapi import FastAPI
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 
 from src.api.featurize import featurize, load_spec
@@ -32,6 +32,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname
 
 ROOT = Path(__file__).resolve().parents[2]
 ARTIFACTS = Path(os.getenv("ARTIFACTS_DIR", ROOT / "artifacts"))
+STATIC = Path(__file__).resolve().parent / "static"
 
 REQUESTS = Counter("predict_requests_total", "Prediction requests")
 ERRORS = Counter("predict_errors_total", "Prediction errors")
@@ -108,6 +109,12 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Diabetes 30-Day Readmission Risk", version="1.0", lifespan=lifespan)
+
+
+@app.get("/", include_in_schema=False)
+def index() -> FileResponse:
+    """Minimal demo UI: form -> /predict -> risk + top factors."""
+    return FileResponse(STATIC / "index.html")
 
 
 @app.get("/health")

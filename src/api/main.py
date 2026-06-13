@@ -38,6 +38,7 @@ ROOT = Path(__file__).resolve().parents[2]
 ARTIFACTS = Path(os.getenv("ARTIFACTS_DIR", ROOT / "artifacts"))
 STATIC = Path(__file__).resolve().parent / "static"
 GOVERNANCE = Path(os.getenv("GOVERNANCE_DIR", ROOT / "governance"))
+MODEL_REPORT = Path(os.getenv("MODEL_REPORT", ROOT / "src/models/final_model_report.json"))
 
 # Every scored request is appended here (audit trail + the window /drift reads).
 AUDIT_LOG = Path(os.getenv("AUDIT_LOG", ROOT / "logs" / "predictions.jsonl"))
@@ -171,38 +172,105 @@ def metrics() -> Response:
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
-# (key, tab label, markdown file) — the governance reports rendered at /governance.
-_GOV_TABS = [
-    ("model-card", "Model Card", "MODEL_CARD.md"),
-    ("fairness", "Fairness Audit", "fairness_report.md"),
-    ("shap", "SHAP Importance", "shap_global_importance.md"),
-]
-
-
-def _render_md(filename: str) -> str:
+def _render_md_file(filename: str) -> str:
     path = GOVERNANCE / filename
     if not path.exists():
         return ("<p><em>Not generated yet — run "
                 "<code>python -m src.governance.fairness_audit</code> and "
                 "<code>python -m src.governance.shap_global</code>.</em></p>")
-    return markdown.markdown(
-        path.read_text(encoding="utf-8"),
-        extensions=["tables", "fenced_code", "sane_lists"],
-    )
+    return _md(path.read_text(encoding="utf-8"))
+
+
+def _md(text: str) -> str:
+    return markdown.markdown(text, extensions=["tables", "fenced_code", "sane_lists"])
+
+
+def eval_report() -> str:
+    """Care-team-facing evaluation report rendered from final_model_report.json."""
+    if not MODEL_REPORT.exists():
+        return "<p><em>final_model_report.json not found — run the modeling pipeline.</em></p>"
+    r = json.loads(MODEL_REPORT.read_text(encoding="utf-8"))
+    cm, t, ta = r["cost_model"], r["test"], r["test"]["at_threshold"]
+    thr = r["threshold"]
+    pct = lambda x: f"{x:.1%}"
+
+    md_lines = [
+        "# Model Evaluation Report",
+        "",
+        f"**Model:** {r['model']} · **Operating threshold:** {thr} "
+        f"(flag a patient when risk ≥ {thr}).",
+        "",
+        "## How the care team uses this",
+        "At discharge, each patient gets a **calibrated 30-day readmission risk** (an honest "
+        "probability). The team proactively follows up with every patient **at or above the "
+        f"flag threshold ({thr})**. The threshold is not arbitrary — it falls out of the cost "
+        "trade-off below, and each prediction comes with its top contributing factors so a "
+        "clinician can sanity-check *why* before acting.",
+        "",
+        "## The decision rule (cost assumptions)",
+        f"- A 30-day readmission costs about **${cm['readmission_cost']:,}**.",
+        f"- A follow-up intervention costs about **${cm['intervention_cost']:,}**.",
+        f"- About **{pct(cm['preventable_fraction'])}** of readmissions are preventable "
+        "with timely follow-up.",
+        "",
+        "Flag when the expected *preventable* cost beats the intervention cost:",
+        "",
+        f"&nbsp;&nbsp;`risk × {cm['preventable_fraction']} × ${cm['readmission_cost']:,} "
+        f"> ${cm['intervention_cost']:,}`  →  **risk ≥ {thr}**.",
+        "",
+        "## Performance on held-out test data",
+        "Computed **once**, on patients the model never saw during training or tuning — the "
+        "honest estimate of real-world performance.",
+        "",
+        "| metric | value | what it means |",
+        "|---|---|---|",
+        f"| Recall @ {thr} | **{pct(ta['recall'])}** | share of true 30-day readmissions the model flags |",
+        f"| Precision @ {thr} | {pct(ta['precision'])} | share of flagged patients who are readmitted (low by design) |",
+        f"| Flag rate | {pct(ta['flag_rate'])} | share of patients recommended for follow-up |",
+        f"| PR-AUC | {t['test_pr_auc']:.3f} | ranking quality at ~11% prevalence (vs 0.11 baseline) |",
+        f"| ROC-AUC | {t['test_roc_auc']:.3f} | overall ranking quality |",
+        f"| Brier score | {t['test_brier']:.3f} | calibration error — lower is better (0.101 = base-rate bar) |",
+        f"| Net savings | **${ta['net_savings_per_1000']:,.0f} / 1,000 patients** | under the cost model above |",
+        "",
+        "**Why precision is low on purpose:** a wasted follow-up call costs ~$300; a *missed* "
+        "readmission costs ~$15,000. We deliberately favour catching readmissions (high recall) "
+        "over avoiding false alarms.",
+        "",
+        "## Threshold sensitivity",
+        "The flag threshold shifts if the cost assumptions change — useful when adapting the "
+        "model to a different unit or budget:",
+        "",
+        "| preventable fraction | readmission cost | optimal threshold |",
+        "|---|---|---|",
+    ]
+    for s in r.get("sensitivity", []):
+        md_lines.append(f"| {pct(s['preventable'])} | ${s['readmission_cost']:,} | {s['threshold']} |")
+    md_lines += [
+        "",
+        f"The shipped threshold (**{thr}**) corresponds to the highlighted assumptions "
+        f"({pct(cm['preventable_fraction'])} preventable, ${cm['readmission_cost']:,} cost).",
+    ]
+    return _md("\n".join(md_lines))
+
+
+# (key, tab label, builder) — sections rendered at /governance.
+_GOV_TABS = [
+    ("model-card", "Model Card", lambda: _render_md_file("MODEL_CARD.md")),
+    ("evaluation", "Model Evaluation", eval_report),
+    ("fairness", "Fairness Audit", lambda: _render_md_file("fairness_report.md")),
+    ("shap", "SHAP Importance", lambda: _render_md_file("shap_global_importance.md")
+        + '<img src="/governance/shap_importance.png" alt="Global SHAP importance" class="shap-img">'),
+]
 
 
 @app.get("/governance", include_in_schema=False)
 def governance() -> HTMLResponse:
-    """Governance dashboard: model card, fairness audit, and global SHAP importance."""
+    """Governance dashboard: model card, evaluation, fairness audit, global SHAP importance."""
     buttons, panels = [], []
-    for i, (key, label, filename) in enumerate(_GOV_TABS):
+    for i, (key, label, builder) in enumerate(_GOV_TABS):
         active = " active" if i == 0 else ""
         buttons.append(f'<button class="tab{active}" data-tab="{key}">{label}</button>')
-        body = _render_md(filename)
-        if key == "shap":
-            body += ('<img src="/governance/shap_importance.png" alt="Global SHAP importance" '
-                     'class="shap-img">')
-        panels.append(f'<section class="panel{active}" id="{key}">{body}</section>')
+        panels.append(f'<section class="panel{active}" id="{key}">{builder()}</section>')
 
     page = f"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -214,10 +282,11 @@ def governance() -> HTMLResponse:
  header {{ background:var(--card); border-bottom:1px solid var(--line); padding:16px 28px; }}
  header h1 {{ margin:0; font-size:19px; color:var(--accent); }}
  header a {{ color:var(--accent); font-size:13px; margin-right:14px; text-decoration:none; }}
- .tabs {{ display:flex; gap:6px; padding:14px 28px 0; flex-wrap:wrap; }}
- .tab {{ background:transparent; border:1px solid var(--line); border-bottom:none; border-radius:8px 8px 0 0;
-         padding:9px 16px; font-size:14px; cursor:pointer; color:var(--muted); }}
- .tab.active {{ background:var(--card); color:var(--accent); font-weight:600; }}
+ .tabs {{ display:flex; gap:8px; padding:16px 28px 0; flex-wrap:wrap; }}
+ .tab {{ background:#bfe0cc; border:1px solid #9ccbb0; border-bottom:none; border-radius:10px 10px 0 0;
+         padding:10px 18px; font-size:14px; font-weight:500; cursor:pointer; color:#0b5740; transition:background .15s; }}
+ .tab:hover {{ background:#aed7bd; }}
+ .tab.active {{ background:var(--accent); color:#fff; font-weight:600; border-color:var(--accent); }}
  .panel {{ display:none; background:var(--card); border:1px solid var(--line); border-radius:0 12px 12px 12px;
            margin:0 28px 28px; padding:24px 28px; max-width:1000px; line-height:1.5; }}
  .panel.active {{ display:block; }}

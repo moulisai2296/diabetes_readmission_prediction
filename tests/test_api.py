@@ -74,7 +74,9 @@ def test_metrics_endpoint(client, payload):
 def test_governance_dashboard(client):
     r = client.get("/governance")
     assert r.status_code == 200
-    assert all(t in r.text for t in ("Model Card", "Fairness Audit", "SHAP Importance"))
+    assert all(t in r.text for t in
+               ("Model Card", "Model Evaluation", "Fairness Audit", "SHAP Importance"))
+    assert "Net savings" in r.text  # the evaluation report rendered from final_model_report.json
     png = client.get("/governance/shap_importance.png")
     assert png.status_code == 200
     assert png.headers["content-type"] == "image/png"

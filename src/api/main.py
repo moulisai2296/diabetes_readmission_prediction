@@ -273,7 +273,9 @@ def drift() -> HTMLResponse:
     try:
         current = current_frame(records, service.spec)
         snapshot = drift_report(service.reference, current, service.spec)
-        return HTMLResponse(snapshot.get_html_str(as_iframe=True))
+        # as_iframe=False renders the report inline; the iframe variant relies on a
+        # ResizeObserver that collapses to ~0 height when served directly as a response.
+        return HTMLResponse(snapshot.get_html_str(as_iframe=False))
     except Exception:
         log.exception("drift report failed")
         return _page("Failed to build the drift report — see server logs.", 500)

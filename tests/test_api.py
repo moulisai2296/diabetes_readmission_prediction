@@ -97,4 +97,7 @@ def test_drift_report_renders(client, payload, monkeypatch, tmp_path):
         client.post("/predict", json={**payload, "num_medications": 5 + n})
     r = client.get("/drift")
     assert r.status_code == 200
-    assert "evidently" in r.text.lower()  # a real Evidently report rendered
+    # a real report, rendered inline as a full page (not the self-collapsing iframe variant)
+    assert "<!doctype html" in r.text.lower()
+    assert "drift" in r.text.lower()
+    assert "evidently-ui-iframe" not in r.text

@@ -403,3 +403,59 @@ deploy, billing alert, rollback plan).*
 
 *Next: Stage 6 — Governance (Fairlearn audit, SHAP global importance, model card,
 lineage, human-in-the-loop, reflection); then the deferred Stage 4 GCP Cloud Run deploy.*
+
+## Stage 6 — Governance & Re-evaluation
+
+### What we did
+1. **Fairness audit** (`src/governance/fairness_audit.py`) — Fairlearn `MetricFrame` on
+   the held-out test split, per-group **selection rate, recall, FPR, precision** across
+   age / gender / race, plus worst-case disparities. Writes `governance/fairness_report.md`
+   and `fairness_metrics.json`.
+2. **Global explainability** (`src/governance/shap_global.py`) — mean |SHAP| per feature
+   over a test sample using the *same* XGBoost `pred_contribs` the API serves per patient.
+   Writes a ranked table + top-20 bar chart.
+3. **Model card** (`governance/MODEL_CARD.md`) — intended use, training data, test
+   performance, explainability, fairness findings, limitations, lineage, and an explicit
+   human-in-the-loop policy.
+4. **Reflection** (`governance/REFLECTION.md`) — trade-offs, what to change before real
+   deployment, model limits.
+5. **Tests** (39 total, +2): fairness `audit_feature` returns valid per-group rates;
+   `global_importance` returns a sorted, non-negative ranking over all features.
+
+### The findings (test split, n = 14,859, threshold 0.10)
+- **Performance:** PR-AUC 0.244, ROC-AUC 0.688, **recall 0.70**, precision 0.168,
+  Brier 0.095 (beats the 0.101 base-rate bar). Recall deliberately bought with low
+  precision under the $300-vs-$15k cost model.
+- **Global drivers:** number_inpatient, discharge_disposition, total_prior_visits,
+  payer_code, diag_1_group — matches the per-patient factors and the EDA.
+- **Fairness:** gender essentially equitable (recall gap 0.045); race gap 0.218 sits in
+  small subgroups (Asian n=94); age gap 0.829 is mostly the n=20 `[0-10)` bracket plus a
+  real "reliable for 50–90, weak for the young" trend. Disclosed, not mitigated, in v1.
+
+### Why — the key design decisions
+- **One explainer, two altitudes.** Global importance reuses the serving `pred_contribs`
+  rather than the standalone `shap` library, so the population-level story and the
+  per-patient `/predict` factors can never disagree — a single source of truth for "why".
+- **Recall is the fairness metric.** At 11% prevalence and an asymmetric cost, a *missed*
+  readmission is the harm; we report recall parity first, with selection-rate (demographic
+  parity) and FPR alongside — not a single averaged "fairness score".
+- **Disclose, don't silently mitigate.** v1 reports the age/race gaps honestly; per-group
+  thresholds or reweighting are deferred because they must be validated against newly
+  labelled outcomes we don't yet have — mitigating by eye would be worse than disclosing.
+- **Lineage documented, not re-coded (user's call).** model_version already flows through
+  `/predict`, `/health`, and the audit log; data is DVC-pinned and code is the git commit,
+  so the model card describes the existing trace rather than adding new plumbing.
+- **Governance artifacts are generated from code**, not hand-written, so they regenerate
+  with the model and can't drift from reality.
+
+### How — the non-obvious mechanics
+- **age has no raw column at the feature level** (it's `age_ordinal` 0–9); the audit maps
+  it back to bracket labels for readable group names.
+- **Write files as UTF-8** — Windows' default cp1252 can't encode the `−`/`|` we use in
+  the reports; every `write_text` passes `encoding="utf-8"`.
+- **Reproduce:** `python -m src.governance.fairness_audit` and
+  `python -m src.governance.shap_global` (after `export_model`) regenerate everything under
+  `governance/`.
+
+*Next: the deferred Stage 4 part 3 — GCP Cloud Run (Artifact Registry + Cloud Build,
+deploy, billing alert, rollback). Final stage.*

@@ -20,36 +20,37 @@ DVC.
 
 ## 1. The big picture
 
-```
-                         OFFLINE / TRAINING PLANE  (DVC pipeline: dvc repro)
- ┌──────────────────────────────────────────────────────────────────────────────────┐
- │ raw CSVs ──clean──> cleaned.parquet ──features──> features.parquet ──split──> splits│
- │  (DVC)                (src/data)       (src/features)        (src/models/split)     │
- │                                                                   │                  │
- │                                                          train + finalize            │
- │                                                          (src/models, MLflow)        │
- │                                                                   │                  │
- │                                                          MLflow registry             │
- │                                                          "readmission-risk" vN       │
- └───────────────────────────────────────────────────────────────┬──────────────────┘
-                                                                   │  export_model
-                                                                   ▼
-                                            artifacts/  (model.joblib, feature_spec.json,
-                                                         drift_reference.parquet)
-                                                                   │
- ┌─────────────────────────────────────────────────────────────── ▼ ────────────────┐
- │                          ONLINE / SERVING PLANE  (FastAPI in Docker)               │
- │  client JSON ─> /predict ─> featurize() ─> model ─> calibrated risk + flag + SHAP  │
- │                                  │                            │                     │
- │                                  │                            ├─> logs/predictions.jsonl
- │                                  │                            └─> Prometheus /metrics
- │  GET /            demo UI        │                                                  │
- │  GET /drift       Evidently report  (audit log vs drift_reference.parquet)          │
- │  GET /governance  model card + fairness + SHAP tabs                                 │
- └────────────────────────────────────────────────────────────────────────────────────┘
-            │                               │
-   Prometheus scrapes /metrics      Grafana reads Prometheus
-   + evaluates alerts.yml           (dashboards)
+```mermaid
+flowchart TD
+    subgraph OFF["Offline / training plane — dvc repro"]
+        direction LR
+        raw["raw CSVs (DVC)<br/>diabetic_data + IDS_mapping"]
+        cleaned["cleaned.parquet"]
+        features["features.parquet"]
+        splits["splits/<br/>train · val · test"]
+        train["train + finalize<br/>(MLflow)"]
+        reg["MLflow registry<br/>readmission-risk vN"]
+        raw -->|clean.py| cleaned -->|build_features.py| features -->|split.py| splits --> train --> reg
+    end
+
+    art["artifacts/<br/>model.joblib · feature_spec.json<br/>drift_reference.parquet"]
+    reg -->|export_model.py| art
+
+    subgraph ON["Online / serving plane — FastAPI in Docker"]
+        predict["/predict<br/>featurize() → model →<br/>risk + flag + SHAP"]
+        log["logs/predictions.jsonl"]
+        metrics["/metrics"]
+        drift["/drift<br/>(Evidently)"]
+        gov["/governance"]
+        ui["/ demo UI"]
+        predict --> log
+        predict --> metrics
+        log --> drift
+    end
+
+    art --> predict
+    art -. baseline .-> drift
+    metrics --> prom["Prometheus<br/>+ alerts.yml"] --> graf["Grafana"]
 ```
 
 ---
@@ -122,30 +123,21 @@ This answers **"how is input cleaned and processed during prediction?"** Short v
 the heavy cleaning already happened offline and is the *caller's* responsibility; the
 server only does feature engineering, using the frozen vocabulary.
 
-```
-client sends JSON (a PatientEncounter)
-        │   raw-ish, post-ETL fields: race, gender, age bracket, diag codes,
-        │   med statuses, admission/discharge descriptions …
-        ▼
-1. schema.py (Pydantic PatientEncounter)
-        │   validates types/ranges, fills sensible defaults (meds→"No",
-        │   payer→"Missing", labs→"NotMeasured"). Rejects bad input (422).
-        ▼
-2. featurize.py  (the SAME engineer() used in training)
-        │   • engineer(): ICD-9 buckets, total_prior_visits, age_ordinal, …
-        │   • apply the LEARNED rare-category vocabulary from feature_spec.json
-        │   • set pandas `category` dtypes with the EXACT training categories
-        │     (so XGBoost's native category codes line up with training)
-        ▼
-3. model.joblib.predict_proba()  → calibrated risk (an honest probability)
-        │
-        ├─ flag = risk ≥ threshold (0.10, from the spec)
-        ├─ top_factors = XGBoost TreeSHAP pred_contribs (per-patient explanation)
-        ▼
-4. response: { readmission_risk, flagged, threshold, model_version, top_factors }
-        │
-        ├─> appended to logs/predictions.jsonl   (audit + drift window)
-        └─> Prometheus counters/histograms updated
+```mermaid
+flowchart TD
+    c["Client JSON (PatientEncounter)<br/>raw-ish post-ETL fields: race, gender,<br/>age bracket, diag codes, med statuses,<br/>admission/discharge descriptions"]
+    s["1. schema.py (Pydantic)<br/>validate types/ranges + fill defaults<br/>(meds→No, payer→Missing, labs→NotMeasured)<br/>bad input → 422"]
+    f["2. featurize.py — the SAME engineer() as training<br/>• ICD-9 buckets, total_prior_visits, age_ordinal…<br/>• apply learned rare-category vocab (feature_spec.json)<br/>• set category dtypes with EXACT training categories"]
+    m["3. model.joblib.predict_proba()<br/>→ calibrated risk"]
+    r["4. response<br/>risk, flagged (risk ≥ 0.10),<br/>threshold, model_version, top_factors"]
+    shap["TreeSHAP pred_contribs<br/>→ per-patient top factors"]
+    audit["logs/predictions.jsonl<br/>(audit + drift window)"]
+    met["Prometheus counters / histograms"]
+
+    c --> s --> f --> m --> r
+    m --> shap --> r
+    r --> audit
+    r --> met
 ```
 
 **Key point on "cleaning during prediction":** the API contract is the *cleaned* level

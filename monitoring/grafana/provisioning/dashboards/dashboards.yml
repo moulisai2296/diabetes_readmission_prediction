@@ -1,0 +1,7 @@
+# Tell Grafana to load any dashboard JSON found in /var/lib/grafana/dashboards.
+apiVersion: 1
+providers:
+  - name: readmission
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards

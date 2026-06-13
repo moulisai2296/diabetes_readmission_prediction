@@ -6,9 +6,22 @@ deployed, monitored, governed service.
 
 Dataset: UCI Diabetes 130-US Hospitals (1999–2008), ~101k encounters.
 
-> Work in progress — built stage by stage (data engineering → features → modeling →
-> deployment → observability → governance). See `CLAUDE.md` for the full plan and
-> `docs/DESIGN_NOTES.md` for concept write-ups.
+> Built stage by stage (data engineering → features → modeling → deployment →
+> observability → governance); GCP Cloud Run deploy is the remaining step.
+
+## Documentation
+
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — start here: end-to-end data flow and
+  architecture (offline training plane vs online serving plane, prediction path,
+  monitoring inputs, governance timing) with rendered diagrams and an artifact map.
+- [docs/DESIGN_NOTES.md](docs/DESIGN_NOTES.md) — the *why* behind key design decisions.
+- [docs/PROJECT_JOURNAL.md](docs/PROJECT_JOURNAL.md) — chronological build log, stage by stage.
+- [governance/MODEL_CARD.md](governance/MODEL_CARD.md) · [governance/REFLECTION.md](governance/REFLECTION.md) — model card and retrospective.
+- [monitoring/README.md](monitoring/README.md) — metrics, drift, alerts, retraining trigger.
+- `CLAUDE.md` — the full stage-by-stage plan and project decisions.
+
+Once running, the service also serves these live: `/` (demo UI), `/governance`
+(model card + fairness + SHAP), and `/drift` (Evidently report).
 
 ## Quickstart
 

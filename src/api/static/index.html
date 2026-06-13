@@ -13,6 +13,8 @@
   header { padding:20px 28px; border-bottom:1px solid var(--line); background:var(--card); }
   header h1 { margin:0; font-size:20px; color:var(--accent); }
   header p { margin:4px 0 0; color:var(--muted); font-size:13px; }
+  header nav { margin-top:8px; }
+  header nav a { color:var(--accent); font-size:13px; margin-right:14px; text-decoration:none; }
   .wrap { display:grid; grid-template-columns:1.4fr 1fr; gap:24px; padding:24px 28px;
           max-width:1200px; }
   @media (max-width:900px){ .wrap{ grid-template-columns:1fr; } }
@@ -50,6 +52,7 @@
 <header>
   <h1>Diabetes 30-Day Readmission Risk</h1>
   <p>Enter a discharged patient's encounter; the model returns the calibrated risk, a follow-up flag, and the factors driving the score.</p>
+  <nav><a href="/governance">Governance dashboard</a><a href="/drift">Drift report</a><a href="/docs">API docs</a></nav>
 </header>
 
 <div class="wrap">

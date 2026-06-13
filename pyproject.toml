@@ -10,6 +10,7 @@ dependencies = [
     "ipykernel>=7.3.0",
     "jupyter-client>=8.9.1",
     "lightgbm>=4.6.0",
+    "markdown>=3.10.2",
     "matplotlib>=3.11.0",
     "mlflow>=3.13.0",
     "nbconvert>=7.17.1",

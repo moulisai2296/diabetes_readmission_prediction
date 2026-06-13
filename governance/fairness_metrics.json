@@ -1,0 +1,200 @@
+{
+  "gender": {
+    "sensitive_feature": "gender",
+    "overall": {
+      "count": 14859.0,
+      "selection_rate": 0.4717679520829127,
+      "recall": 0.7001784651992862,
+      "false_positive_rate": 0.4426316588253149,
+      "precision": 0.16790299572039943
+    },
+    "by_group": {
+      "Female": {
+        "count": 7951.0,
+        "selection_rate": 0.48534775499937116,
+        "recall": 0.7212931995540691,
+        "false_positive_rate": 0.45534448539835554,
+        "precision": 0.16766001554806945
+      },
+      "Male": {
+        "count": 6908.0,
+        "selection_rate": 0.4561378112333526,
+        "recall": 0.6760204081632653,
+        "false_positive_rate": 0.42798824297844545,
+        "precision": 0.1682005712472231
+      }
+    },
+    "max_difference": {
+      "selection_rate": 0.029209943766018542,
+      "recall": 0.04527279139080387,
+      "false_positive_rate": 0.027356242419910082,
+      "precision": 0.0005405556991536498
+    },
+    "min_ratio": {
+      "selection_rate": 0.9398164646583018,
+      "recall": 0.9372338579945115,
+      "false_positive_rate": 0.9399218760803095,
+      "precision": 0.9967862433810696
+    }
+  },
+  "race": {
+    "sensitive_feature": "race",
+    "overall": {
+      "count": 14859.0,
+      "selection_rate": 0.4717679520829127,
+      "recall": 0.7001784651992862,
+      "false_positive_rate": 0.4426316588253149,
+      "precision": 0.16790299572039943
+    },
+    "by_group": {
+      "AfricanAmerican": {
+        "count": 2817.0,
+        "selection_rate": 0.46929357472488464,
+        "recall": 0.7212121212121212,
+        "false_positive_rate": 0.43586650583031766,
+        "precision": 0.1800302571860817
+      },
+      "Asian": {
+        "count": 94.0,
+        "selection_rate": 0.32978723404255317,
+        "recall": 0.5714285714285714,
+        "false_positive_rate": 0.3103448275862069,
+        "precision": 0.12903225806451613
+      },
+      "Caucasian": {
+        "count": 11129.0,
+        "selection_rate": 0.48351154641027944,
+        "recall": 0.694620253164557,
+        "false_positive_rate": 0.45646224024328436,
+        "precision": 0.1631666976398439
+      },
+      "Hispanic": {
+        "count": 307.0,
+        "selection_rate": 0.4201954397394137,
+        "recall": 0.7894736842105263,
+        "false_positive_rate": 0.3680297397769517,
+        "precision": 0.23255813953488372
+      },
+      "Missing": {
+        "count": 320.0,
+        "selection_rate": 0.290625,
+        "recall": 0.65,
+        "false_positive_rate": 0.26666666666666666,
+        "precision": 0.13978494623655913
+      },
+      "Other": {
+        "count": 192.0,
+        "selection_rate": 0.28125,
+        "recall": 0.6363636363636364,
+        "false_positive_rate": 0.23529411764705882,
+        "precision": 0.25925925925925924
+      }
+    },
+    "max_difference": {
+      "selection_rate": 0.20226154641027944,
+      "recall": 0.21804511278195493,
+      "false_positive_rate": 0.22116812259622554,
+      "precision": 0.13022700119474312
+    },
+    "min_ratio": {
+      "selection_rate": 0.5816820758223379,
+      "recall": 0.7238095238095238,
+      "false_positive_rate": 0.5154733445676738,
+      "precision": 0.4976958525345622
+    }
+  },
+  "age": {
+    "sensitive_feature": "age",
+    "overall": {
+      "count": 14859.0,
+      "selection_rate": 0.4717679520829127,
+      "recall": 0.7001784651992862,
+      "false_positive_rate": 0.4426316588253149,
+      "precision": 0.16790299572039943
+    },
+    "by_group": {
+      "[0-10)": {
+        "count": 20.0,
+        "selection_rate": 0.05,
+        "recall": 0.0,
+        "false_positive_rate": 0.05263157894736842,
+        "precision": 0.0
+      },
+      "[10-20)": {
+        "count": 107.0,
+        "selection_rate": 0.17757009345794392,
+        "recall": 0.375,
+        "false_positive_rate": 0.16161616161616163,
+        "precision": 0.15789473684210525
+      },
+      "[20-30)": {
+        "count": 252.0,
+        "selection_rate": 0.4246031746031746,
+        "recall": 0.8292682926829268,
+        "false_positive_rate": 0.3459715639810427,
+        "precision": 0.3177570093457944
+      },
+      "[30-40)": {
+        "count": 528.0,
+        "selection_rate": 0.32765151515151514,
+        "recall": 0.6071428571428571,
+        "false_positive_rate": 0.2944915254237288,
+        "precision": 0.19653179190751446
+      },
+      "[40-50)": {
+        "count": 1410.0,
+        "selection_rate": 0.3468085106382979,
+        "recall": 0.5606060606060606,
+        "false_positive_rate": 0.32472613458528954,
+        "precision": 0.15132924335378323
+      },
+      "[50-60)": {
+        "count": 2618.0,
+        "selection_rate": 0.3284950343773873,
+        "recall": 0.6607142857142857,
+        "false_positive_rate": 0.2887082976903336,
+        "precision": 0.21511627906976744
+      },
+      "[60-70)": {
+        "count": 3159.0,
+        "selection_rate": 0.448559670781893,
+        "recall": 0.6883852691218131,
+        "false_positive_rate": 0.4183891660727014,
+        "precision": 0.1714890613973183
+      },
+      "[70-80)": {
+        "count": 3962.0,
+        "selection_rate": 0.5519939424533065,
+        "recall": 0.7442348008385744,
+        "false_positive_rate": 0.5256814921090387,
+        "precision": 0.1623228166438043
+      },
+      "[80-90)": {
+        "count": 2399.0,
+        "selection_rate": 0.6285952480200083,
+        "recall": 0.7695035460992907,
+        "false_positive_rate": 0.6098252243741143,
+        "precision": 0.14389920424403183
+      },
+      "[90-100)": {
+        "count": 404.0,
+        "selection_rate": 0.6163366336633663,
+        "recall": 0.6274509803921569,
+        "false_positive_rate": 0.6147308781869688,
+        "precision": 0.1285140562248996
+      }
+    },
+    "max_difference": {
+      "selection_rate": 0.5785952480200083,
+      "recall": 0.8292682926829268,
+      "false_positive_rate": 0.5620992992396003,
+      "precision": 0.3177570093457944
+    },
+    "min_ratio": {
+      "selection_rate": 0.07954244031830239,
+      "recall": 0.0,
+      "false_positive_rate": 0.08561726897889886,
+      "precision": 0.0
+    }
+  }
+}

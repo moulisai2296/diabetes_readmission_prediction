@@ -11,9 +11,10 @@ ENV UV_LINK_MODE=copy \
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-install-project --no-dev
 
-# 2) Application code + serving artifacts
+# 2) Application code + serving artifacts + governance reports (viewed at /governance)
 COPY src/ ./src/
 COPY artifacts/ ./artifacts/
+COPY governance/ ./governance/
 
 ENV PATH="/app/.venv/bin:$PATH" \
     ARTIFACTS_DIR=/app/artifacts

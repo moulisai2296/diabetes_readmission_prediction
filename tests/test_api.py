@@ -71,6 +71,15 @@ def test_metrics_endpoint(client, payload):
     assert "predict_risk_score" in text
 
 
+def test_governance_dashboard(client):
+    r = client.get("/governance")
+    assert r.status_code == 200
+    assert all(t in r.text for t in ("Model Card", "Fairness Audit", "SHAP Importance"))
+    png = client.get("/governance/shap_importance.png")
+    assert png.status_code == 200
+    assert png.headers["content-type"] == "image/png"
+
+
 def test_drift_needs_minimum(client, monkeypatch, tmp_path):
     import src.api.main as main
     monkeypatch.setattr(main, "AUDIT_LOG", tmp_path / "empty.jsonl")

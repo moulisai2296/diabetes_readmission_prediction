@@ -13,6 +13,7 @@ mlartifacts/
 mlflow.db
 *.joblib
 *.pkl
+artifacts/
 
 # Python
 __pycache__/

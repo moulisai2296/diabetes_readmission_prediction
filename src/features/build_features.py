@@ -79,7 +79,13 @@ def icd9_bucket(code: str | float) -> str:
     return "Other"
 
 
-def build_features(df: pd.DataFrame) -> pd.DataFrame:
+def engineer(df: pd.DataFrame) -> pd.DataFrame:
+    """Deterministic, row-wise feature engineering.
+
+    Uses NO dataset-wide statistics, so it is identical for a 100k-row training
+    table or a single patient at serving time — the shared transform that keeps
+    training and serving from drifting apart (see src/api/featurize.py).
+    """
     df = df.copy()
 
     # --- diagnoses: 716-789 raw ICD-9 codes -> 10 clinical buckets ---
@@ -90,8 +96,6 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
         (df[["diag_1_group", "diag_2_group", "diag_3_group"]] == "Diabetes").any(axis=1).astype("int8")
     )
     df = df.drop(columns=["diag_1", "diag_2", "diag_3"])
-    log.info("diag_1 bucket shares:\n%s",
-             df["diag_1_group"].value_counts(normalize=True).round(3).to_string())
 
     # --- utilization: prior-visit pressure (number_inpatient is the strongest
     # single signal in the EDA; components are kept alongside the total) ---
@@ -107,14 +111,32 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     # --- age: ordered brackets -> ordinal 0..9 ---
     df["age_ordinal"] = df["age"].map({b: i for i, b in enumerate(AGE_ORDER)}).astype("int8")
     df = df.drop(columns=["age"])
+    return df
 
-    # --- rare-category lumping for the two high-cardinality context columns ---
+
+def lump_rare(s: pd.Series, keep: set | None = None) -> tuple[pd.Series, set]:
+    """Collapse categories under RARE_THRESHOLD into 'Other'.
+
+    keep=None  -> learn the surviving set from this series' frequencies (training).
+    keep=set   -> apply a previously-learned surviving set (serving), so a category
+                  that was rare in training maps to 'Other' even in a single request.
+    """
+    if keep is None:
+        shares = s.value_counts(normalize=True)
+        keep = set(shares[shares >= RARE_THRESHOLD].index)
+    return s.where(s.isin(keep), "Other"), keep
+
+
+def build_features(df: pd.DataFrame) -> pd.DataFrame:
+    df = engineer(df)
+    log.info("diag_1 bucket shares:\n%s",
+             df["diag_1_group"].value_counts(normalize=True).round(3).to_string())
+
     for col in RARE_LUMP_COLS:
-        shares = df[col].value_counts(normalize=True)
-        rare = shares[shares < RARE_THRESHOLD].index
-        df[col] = df[col].where(~df[col].isin(rare), "Other")
+        before = df[col].nunique()
+        df[col], keep = lump_rare(df[col])
         log.info("%s: lumped %d rare categories -> %d remain",
-                 col, len(rare), df[col].nunique())
+                 col, before - len(keep), df[col].nunique())
 
     # readmitted (3-class source of `target`) must never reach a model
     df = df.drop(columns=["readmitted"])

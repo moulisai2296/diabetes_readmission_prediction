@@ -18,6 +18,7 @@ Format for each entry:
 2. [MLflow — a lab notebook for experiments](#2-mlflow--a-lab-notebook-for-experiments)
 3. [Grouped splitting — leakage you can't see in the metrics](#3-grouped-splitting--leakage-you-cant-see-in-the-metrics)
 4. [Probability calibration — scores that mean what they say](#4-probability-calibration--scores-that-mean-what-they-say)
+5. [Training/serving skew — one transform, two callers](#5-trainingserving-skew--one-transform-two-callers)
 
 ---
 
@@ -267,3 +268,71 @@ the dial lies; ours is logged as an MLflow artifact.
 > If you reweighted, resampled, or otherwise fought class imbalance, your
 > probabilities are lying. Check Brier against the "always predict the base rate"
 > bar; if you lose, calibrate before anyone reads your scores as percentages.
+
+## 5. Training/serving skew — one transform, two callers
+
+**Context:** Stage 4. Training built features with `build_features.py` over a 100k-row
+table; the live API scores one patient at a time. If the two paths compute features
+even slightly differently, the model receives inputs unlike anything it trained on and
+returns confident nonsense — with no error anywhere. We share `engineer()` between both
+and persist the fitted vocabulary in `feature_spec.json`.
+
+**Principle:** *The features at serving time must be produced by the same code, with
+the same fitted parameters, as the features at training time — anything else is a
+silent accuracy leak.*
+
+### Explanation / analogy
+
+A tailor measures you and sews a suit (training: fit the model to features). Months
+later you order a second suit by phone (serving). If the assistant taking your phone
+measurements rounds to the nearest inch while the tailor used centimetres, the suit
+arrives subtly wrong — and nobody notices until you put it on. The fix isn't "measure
+carefully," it's "use the *same ruler*."
+
+Two kinds of skew bit at us, and each needed a different fix:
+
+1. **Logic skew** — the engineered formulas (`total_prior_visits`, ICD-9 buckets,
+   `age_ordinal`). Fix: there is exactly *one* function, `engineer()`, imported by both
+   the training pipeline and the API's `featurize()`. Not "re-implemented identically"
+   — literally the same function. The only safe amount of duplicated transform code is
+   zero.
+
+2. **State skew** — transforms that *learned something* from training data. Our
+   rare-category lumping keeps medical specialties that were ≥1% *of the training set*;
+   a single request has no frequencies to recompute from. And XGBoost's native
+   categorical encoding maps each category to an integer **code by position** — if
+   serving lists categories in a different order, "Cardiology" silently becomes a
+   different number than it was in training. Fix: freeze that learned state at export
+   time into `feature_spec.json` (the surviving vocabulary + the exact category order)
+   and replay it at serving. The model artifact and the feature spec are exported
+   together, as a matched pair.
+
+The general lesson: any transform with a `.fit()` (scalers, encoders, imputers,
+vocabularies) carries state that must travel from training to serving. Stateless
+transforms only need shared code; stateful ones need shared code *and* shared
+parameters.
+
+### Advantages
+
+1. A whole class of "great offline, broken online" bugs becomes structurally
+   impossible — the ruler is identical by construction.
+2. The serving contract is honest: callers send raw-ish facts, the server owns every
+   derived feature, so a client can't drift the definition of `total_prior_visits`.
+3. Export bundles model + spec, so deployment and rollback move one matched unit.
+
+### Tradeoffs
+
+- The training transform must be written to run on one row, not just a batch — no
+  reliance on `df`-wide statistics inside the row-level path.
+- Two artifacts must stay in sync; exporting them in one step (not by hand) is what
+  prevents a stale spec against a fresh model.
+- Sharing code couples the serving image to the training package (our API imports
+  `src.features`) — fine here, but large shops sometimes extract a small shared
+  transform library to avoid shipping all of training into the serving container.
+
+### Rule of thumb
+
+> Ask of every feature: "could the client compute this differently than training did?"
+> If yes, move it server-side behind shared code. And for any transform that *learned*
+> from data, export its fitted parameters alongside the model — never recompute them
+> from a single request.

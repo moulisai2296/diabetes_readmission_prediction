@@ -33,8 +33,8 @@ stages:
       size: 7705
     - path: src/features/build_features.py
       hash: md5
-      md5: 042f70694ac58f3c2038199382bd9426
-      size: 6761
+      md5: 4c73f1cd7b6754367d9bac28e307c4ec
+      size: 7584
     outs:
     - path: data_folder/processed/features.parquet
       hash: md5

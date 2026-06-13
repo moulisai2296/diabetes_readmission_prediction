@@ -205,5 +205,77 @@ test PR-AUC 0.244 / ROC-AUC 0.688 / Brier 0.095.
 
 ---
 
-*Next: Stage 4 — Package & Deploy (FastAPI /predict with risk score + top factors,
-Docker, docker-compose with Prometheus + Grafana, GCP Cloud Run).*
+## Stage 4 — Package & Deploy (part 1: the FastAPI service)
+
+### What we did
+1. **Refactored `build_features.py`** to extract `engineer()` (deterministic, row-wise
+   feature math) and `lump_rare()` (the one fitted transform) — so training and serving
+   share *one* engineering function. Verified the refactor left `features.parquet`
+   byte-identical (downstream DVC stages didn't re-run).
+2. **`src/api/export_model.py`** — loads `readmission-risk` v1 from the MLflow registry
+   and writes a self-contained `artifacts/` folder: `model.joblib` +
+   `feature_spec.json` (feature order, exact category vocabularies, threshold). The API
+   depends on these files, not on MLflow at runtime.
+3. **`src/api/featurize.py`** — serving transform: `engineer()` → apply the saved
+   rare-category vocabulary → set pandas `category` dtypes with the exact training
+   categories → order columns.
+4. **`src/api/schema.py`** — Pydantic request (`PatientEncounter`, ~45 post-ETL fields
+   with sensible defaults + validation) and response (`risk`, `flagged`, `threshold`,
+   `model_version`, `top_factors`).
+5. **`src/api/main.py`** — FastAPI app: `GET /health`, `POST /predict`, `GET /metrics`
+   (Prometheus). `/predict` returns the calibrated risk, the flag decision (risk ≥
+   0.10), and the top-5 contributing factors via XGBoost SHAP contributions.
+6. **6 API tests** (35 total) and a real over-HTTP smoke test.
+
+### The proof it works (live server, real HTTP)
+Example 70-something patient, 2 prior inpatient visits, transferred to another
+facility → **31.4% risk, flagged=true**, with honest explanations:
+
+| factor | contribution | direction |
+|---|---|---|
+| discharge_disposition = "...another inpatient institution" | +0.59 | increases |
+| number_inpatient = 2 | +0.23 | increases |
+| payer_code = Missing | +0.11 | increases |
+| total_prior_visits = 2 | +0.09 | increases |
+| admission_source = "Transfer from a hospital" | −0.09 | decreases |
+
+`number_inpatient` surfacing as the #2 driver matches the EDA — the model learned the
+signal we expected, and SHAP confirms it per-patient.
+
+### Why — the key design decisions
+- **Server owns feature engineering; client sends raw-ish facts.** The caller posts the
+  three visit counts, raw ICD-9 codes, med statuses, etc.; the server computes
+  `total_prior_visits`, the ICD-9 buckets, `age_ordinal`. This is the training/serving
+  skew defense — see DESIGN_NOTES entry 5. If the client computed engineered features,
+  any tiny difference in logic would corrupt predictions silently.
+- **Export decouples serving from MLflow.** The container shouldn't carry the sqlite db
+  + `mlruns/`. We snapshot the model to joblib and the fitted vocabulary to JSON, as a
+  matched pair, so the service loads two small files.
+- **Calibrated probability is the headline number.** `/predict` returns the *calibrated*
+  risk (honest %), and the flag uses the cost-based 0.10 threshold from Stage 3.
+- **Explanations are best-effort.** `top_factors` is wrapped in try/except — an
+  explanation failure logs but never fails the prediction itself.
+
+### How — the non-obvious mechanics
+- **Category codes are positional.** XGBoost native-categorical maps each category to an
+  integer by its position in the dtype's category list. Serving *must* set the identical
+  category order, or "Cardiology" becomes a different code than in training. We freeze
+  the order in `feature_spec.json` and replay it with
+  `pd.Categorical(values, categories=spec_list)`.
+- **Rare-category lumping is stateful.** It keeps categories that were ≥1% *of training*
+  — meaningless to recompute from one request — so the surviving set is persisted and
+  applied at serving (`lump_rare(s, keep=...)`).
+- **SHAP at serving** uses the underlying XGBoost boosters
+  (`booster.predict(DMatrix(..., enable_categorical=True), pred_contribs=True)`),
+  averaged across the 3 calibration folds; the last column (bias) is dropped, the rest
+  ranked by |contribution|.
+- **Hyphenated med columns** (`glyburide-metformin`, …) aren't valid Python identifiers,
+  so the Pydantic model uses `Field(alias=...)` and we dump with `by_alias=True` to
+  rebuild the original column names for `engineer()`.
+
+Reproduce the serving chain after training: `dvc repro` → `python -m src.models.train`
+→ `python -m src.models.finalize` → `python -m src.api.export_model` → `uvicorn
+src.api.main:app`.
+
+*Next: Stage 4 part 2 — Dockerfile, docker-compose with Prometheus + Grafana, then
+GCP Cloud Run (needs Docker Desktop, installing).*

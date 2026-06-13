@@ -11,9 +11,11 @@ Serving artifacts (model.joblib, feature_spec.json) are produced by
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 import joblib
@@ -21,11 +23,12 @@ import numpy as np
 import pandas as pd
 import xgboost as xgb
 from fastapi import FastAPI
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 
 from src.api.featurize import featurize, load_spec
 from src.api.schema import Factor, PatientEncounter, PredictionResponse
+from src.monitoring.drift import current_frame, drift_report, read_recent
 
 log = logging.getLogger("api")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -33,6 +36,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname
 ROOT = Path(__file__).resolve().parents[2]
 ARTIFACTS = Path(os.getenv("ARTIFACTS_DIR", ROOT / "artifacts"))
 STATIC = Path(__file__).resolve().parent / "static"
+
+# Every scored request is appended here (audit trail + the window /drift reads).
+AUDIT_LOG = Path(os.getenv("AUDIT_LOG", ROOT / "logs" / "predictions.jsonl"))
+DRIFT_WINDOW = int(os.getenv("DRIFT_WINDOW", "500"))       # recent requests compared
+MIN_DRIFT_SAMPLES = int(os.getenv("MIN_DRIFT_SAMPLES", "30"))  # below this, refuse
 
 REQUESTS = Counter("predict_requests_total", "Prediction requests")
 ERRORS = Counter("predict_errors_total", "Prediction errors")
@@ -59,7 +67,11 @@ class Service:
         self.threshold = float(self.spec["threshold"])
         self.version = str(self.spec.get("model_version", "unknown"))
         self.boosters = [e.get_booster() for e in _base_estimators(self.model)]
-        log.info("loaded model v%s, threshold %.3f", self.version, self.threshold)
+        ref_path = artifacts / "drift_reference.parquet"
+        self.reference = pd.read_parquet(ref_path) if ref_path.exists() else None
+        AUDIT_LOG.parent.mkdir(parents=True, exist_ok=True)
+        log.info("loaded model v%s, threshold %.3f, drift_reference=%s",
+                 self.version, self.threshold, "yes" if self.reference is not None else "MISSING")
 
     def top_factors(self, X: pd.DataFrame, k: int = 5) -> list[Factor]:
         """Average XGBoost SHAP contributions across calibration folds."""
@@ -84,18 +96,35 @@ class Service:
             return []
 
     def predict(self, encounter: PatientEncounter) -> PredictionResponse:
-        X = featurize([encounter.model_dump(by_alias=True)], self.spec)
+        encounter_dict = encounter.model_dump(by_alias=True)
+        X = featurize([encounter_dict], self.spec)
         risk = float(self.model.predict_proba(X)[0, 1])
         flagged = risk >= self.threshold
         RISK.observe(risk)
         if flagged:
             FLAGGED.inc()
         log.info("prediction risk=%.4f flagged=%s model_v=%s", risk, flagged, self.version)
+        self._audit(encounter_dict, risk, flagged)
         return PredictionResponse(
             readmission_risk=round(risk, 4), flagged=flagged,
             threshold=self.threshold, model_version=self.version,
             top_factors=self.top_factors(X),
         )
+
+    def _audit(self, encounter: dict, risk: float, flagged: bool) -> None:
+        """Append one line to the prediction audit log (lineage + drift window)."""
+        entry = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "model_version": self.version,
+            "risk": round(risk, 6),
+            "flagged": flagged,
+            "encounter": encounter,
+        }
+        try:
+            with AUDIT_LOG.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(entry) + "\n")
+        except Exception:  # auditing must never break a prediction
+            log.exception("audit write failed")
 
 
 service: Service | None = None
@@ -138,3 +167,30 @@ def predict(encounter: PatientEncounter) -> PredictionResponse:
 @app.get("/metrics")
 def metrics() -> Response:
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
+@app.get("/drift", include_in_schema=True)
+def drift() -> HTMLResponse:
+    """Evidently data + prediction drift: recent requests vs the training baseline.
+
+    Rebuilds the served feature matrix from the audit log and compares it to
+    `drift_reference.parquet`. Returns the full Evidently report as HTML.
+    """
+    def _page(msg: str, code: int = 200) -> HTMLResponse:
+        return HTMLResponse(f"<h2>Drift report</h2><p>{msg}</p>", status_code=code)
+
+    if service.reference is None:
+        return _page("No drift_reference.parquet in artifacts — re-run "
+                     "<code>python -m src.api.export_model</code>.", 503)
+
+    records = read_recent(AUDIT_LOG, limit=DRIFT_WINDOW)
+    if len(records) < MIN_DRIFT_SAMPLES:
+        return _page(f"Only {len(records)} prediction(s) logged; need "
+                     f"≥ {MIN_DRIFT_SAMPLES}. Make more /predict calls, then refresh.")
+    try:
+        current = current_frame(records, service.spec)
+        snapshot = drift_report(service.reference, current, service.spec)
+        return HTMLResponse(snapshot.get_html_str(as_iframe=True))
+    except Exception:
+        log.exception("drift report failed")
+        return _page("Failed to build the drift report — see server logs.", 500)

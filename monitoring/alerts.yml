@@ -1,0 +1,46 @@
+# Prometheus alerting rules for the readmission-risk API.
+# Visible on the Prometheus "Alerts" page (http://localhost:9090/alerts).
+# These fire in Prometheus; wiring a notifier (email/Slack/PagerDuty) is an
+# Alertmanager concern we keep out of the local demo stack.
+groups:
+  - name: readmission-api
+    rules:
+      # --- Service health ---------------------------------------------------
+      - alert: APIDown
+        expr: up{job="readmission-api"} == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "Readmission API is down"
+          description: "Prometheus cannot scrape {{ $labels.instance }} for 1m."
+
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(predict_errors_total[5m]))
+            / sum(rate(predict_requests_total[5m])) > 0.05
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Prediction error rate > 5%"
+          description: "{{ $value | humanizePercentage }} of /predict calls errored over 5m."
+
+      - alert: HighPredictLatencyP95
+        expr: histogram_quantile(0.95, sum(rate(predict_latency_seconds_bucket[5m])) by (le)) > 0.5
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "p95 prediction latency > 500ms"
+          description: "p95 /predict latency is {{ $value }}s over 5m."
+
+      # --- Model behaviour (a cheap drift smoke-signal) --------------------
+      - alert: FlagRateSurge
+        expr: |
+          sum(rate(predict_flagged_total[30m]))
+            / sum(rate(predict_requests_total[30m])) > 0.6
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Share of patients flagged is unusually high"
+          description: >
+            {{ $value | humanizePercentage }} of patients flagged over 30m — well above the
+            training prevalence. Possible input drift; check the /drift report.

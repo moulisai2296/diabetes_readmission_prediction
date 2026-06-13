@@ -69,3 +69,23 @@ def test_metrics_endpoint(client, payload):
     text = client.get("/metrics").text
     assert "predict_requests_total" in text
     assert "predict_risk_score" in text
+
+
+def test_drift_needs_minimum(client, monkeypatch, tmp_path):
+    import src.api.main as main
+    monkeypatch.setattr(main, "AUDIT_LOG", tmp_path / "empty.jsonl")
+    monkeypatch.setattr(main, "MIN_DRIFT_SAMPLES", 5)
+    r = client.get("/drift")
+    assert r.status_code == 200
+    assert "need" in r.text.lower()  # the "not enough data" page
+
+
+def test_drift_report_renders(client, payload, monkeypatch, tmp_path):
+    import src.api.main as main
+    monkeypatch.setattr(main, "AUDIT_LOG", tmp_path / "preds.jsonl")
+    monkeypatch.setattr(main, "MIN_DRIFT_SAMPLES", 5)
+    for n in range(8):  # _audit appends each to the patched log
+        client.post("/predict", json={**payload, "num_medications": 5 + n})
+    r = client.get("/drift")
+    assert r.status_code == 200
+    assert "evidently" in r.text.lower()  # a real Evidently report rendered

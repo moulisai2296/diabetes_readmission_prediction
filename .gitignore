@@ -15,6 +15,9 @@ mlflow.db
 *.pkl
 artifacts/
 
+# Prediction audit log / drift window (runtime output)
+logs/
+
 # Python
 __pycache__/
 *.pyc

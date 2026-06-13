@@ -4,8 +4,10 @@ The API must not depend on the MLflow tracking server / sqlite db at runtime
 (we don't want to ship mlruns into the Docker image). This script pulls the
 registered model once and writes a self-contained `artifacts/` folder:
 
-  artifacts/model.joblib       the calibrated XGBoost pipeline
-  artifacts/feature_spec.json  feature order, category vocabularies, threshold
+  artifacts/model.joblib         the calibrated XGBoost pipeline
+  artifacts/feature_spec.json    feature order, category vocabularies, threshold
+  artifacts/drift_reference.parquet  sample of the training feature matrix + the
+                                 model's score on it, used as the /drift baseline
 
 The category vocabularies are the exact training categories — serving must set
 identical pandas `category` dtypes or XGBoost's native categorical codes shift
@@ -52,6 +54,24 @@ def build_feature_spec() -> dict:
     }
 
 
+def build_drift_reference(model, feature_order: list[str], n: int = 5000, seed: int = 42) -> pd.DataFrame:
+    """Sample of the *training* feature matrix + the model's score, as the drift baseline.
+
+    Restricted to the train split (never val/test) so /drift compares live traffic
+    against exactly what the model learned from.
+    """
+    feats = pd.read_parquet(ROOT / "data_folder/processed/features.parquet")
+    train_ids = pd.read_parquet(
+        ROOT / "data_folder/processed/splits/train.parquet", columns=["encounter_id"]
+    )["encounter_id"]
+    ref = feats[feats["encounter_id"].isin(set(train_ids))]
+    ref = ref.sample(min(n, len(ref)), random_state=seed)
+    X = ref[feature_order]
+    out = X.copy()
+    out["prediction"] = model.predict_proba(X)[:, 1]
+    return out
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
     mlflow.set_tracking_uri(f"sqlite:///{(ROOT / 'mlflow.db').as_posix()}")
@@ -71,6 +91,10 @@ def main() -> None:
     (out / "feature_spec.json").write_text(json.dumps(spec, indent=2))
     log.info("wrote %s (%d features, threshold %.3f)",
              out, len(spec["feature_order"]), spec["threshold"])
+
+    reference = build_drift_reference(model, spec["feature_order"])
+    reference.to_parquet(out / "drift_reference.parquet", index=False)
+    log.info("wrote drift_reference.parquet (%d rows)", len(reference))
 
 
 if __name__ == "__main__":

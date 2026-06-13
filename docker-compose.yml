@@ -8,6 +8,9 @@ services:
     image: readmission-risk:local
     ports:
       - "8000:8000"
+    volumes:
+      # Persist the prediction audit log (lineage + the /drift window) across restarts.
+      - ./logs:/app/logs
     restart: unless-stopped
 
   prometheus:
@@ -16,6 +19,7 @@ services:
       - "9090:9090"
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
     depends_on:
       - api
     restart: unless-stopped

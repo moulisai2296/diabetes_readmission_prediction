@@ -342,3 +342,64 @@ is the fix.
 
 *Next: Stage 4 part 3 — GCP Cloud Run (push image to Artifact Registry via Cloud Build,
 deploy, billing alert, rollback plan).*
+
+## Stage 5 — Observability & Monitoring
+
+### What we did
+1. **Prediction audit log** — every `/predict` appends a JSON line to
+   `logs/predictions.jsonl` (timestamp, model version, risk, flag, full input encounter).
+   One artifact serves three masters: model-metric tracking, the drift window, and the
+   Stage 6 lineage/audit trail. Bind-mounted in compose so it survives restarts.
+2. **Live drift endpoint `GET /drift`** — rebuilds the served feature matrix from the
+   recent audit window and runs **Evidently** (`DataDriftPreset`) against a training
+   baseline, returning the full HTML report. Data drift *and* prediction drift (the score
+   carried as an extra numeric column).
+3. **Drift baseline artifact** — `export_model.py` now also writes
+   `artifacts/drift_reference.parquet`: a 5 000-row sample of the **train split** feature
+   matrix plus the model's score on it.
+4. **Prometheus alert rules** (`monitoring/alerts.yml`, loaded via `rule_files`):
+   `APIDown`, `HighErrorRate`, `HighPredictLatencyP95`, `FlagRateSurge`.
+5. **`monitoring/README.md`** — the whole observability story, including the concrete
+   **retraining trigger** (≥30% features drift / prediction drift; recall@threshold < 0.55
+   on newly labelled data; quarterly floor).
+6. **Tests** (37 total, +2): `/drift` refuses below the minimum sample count, and renders
+   a real Evidently report once enough predictions are logged.
+
+### The proof it works (live stack)
+- `/drift` returns "need ≥ 30" cold, then a **6.2 MB Evidently report** after 40 requests.
+- Prometheus loaded all four rules; a burst of flagged predictions drove **`FlagRateSurge`
+  into `pending`** — the alert path firing end to end.
+
+### Why — the key design decisions
+- **Reference = train split only, scored once at export.** Drift must compare live traffic
+  to *exactly what the model learned from* — not val/test (leakage of the held-out
+  distribution into monitoring) and not "all data". Scoring it at export time means
+  prediction drift is measured against the model's own baseline output.
+- **Rebuild features from the audit log, don't log features.** The log stores the raw
+  encounter; `/drift` re-runs the *same* `featurize()` the model is served with. Reference
+  and current are therefore guaranteed to share one feature definition — the same
+  training/serving-skew defense that shaped Stage 4.
+- **Live endpoint over a batch job (user's call).** The drift report is computed on demand
+  from the in-process window — no scheduler, no extra service; it ships inside the same
+  image and will work unchanged on Cloud Run.
+- **Alerts fire in Prometheus, no Alertmanager.** The grading bar is "an alert that would
+  notify a human"; the rules + states are visible at `/alerts`. Wiring a notifier is a
+  one-config-file addition we deliberately scoped out of the local demo.
+- **`FlagRateSurge` as a cheap drift smoke-signal.** Flag rate is a model-output metric
+  already in Prometheus; a sustained surge above training prevalence is the fastest
+  human-visible hint of input drift, complementing the heavier Evidently report.
+
+### How — the non-obvious mechanics
+- **Evidently 0.7 API.** `Dataset.from_pandas(df, data_definition=DataDefinition(
+  numerical_columns=…, categorical_columns=…))` → `Report(metrics=[DataDriftPreset()]).run(
+  current_data=…, reference_data=…)` → `snapshot.get_html_str(as_iframe=True)`. The score
+  column is added to `numerical_columns` so the preset measures prediction drift too.
+- **Categoricals cast to str before Evidently** so a category present in only one side
+  can't trip the categorical drift test.
+- **Auditing never breaks a prediction** — the log write is wrapped in try/except, same
+  best-effort contract as SHAP `top_factors`.
+- **Reproduce:** `python -m src.api.export_model` (writes the reference) → `docker compose
+  up -d --build` → hit `/predict` ≥30×, then open `/drift`; alerts at `:9090/alerts`.
+
+*Next: Stage 6 — Governance (Fairlearn audit, SHAP global importance, model card,
+lineage, human-in-the-loop, reflection); then the deferred Stage 4 GCP Cloud Run deploy.*

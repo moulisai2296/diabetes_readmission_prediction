@@ -19,6 +19,7 @@ Format for each entry:
 3. [Grouped splitting — leakage you can't see in the metrics](#3-grouped-splitting--leakage-you-cant-see-in-the-metrics)
 4. [Probability calibration — scores that mean what they say](#4-probability-calibration--scores-that-mean-what-they-say)
 5. [Training/serving skew — one transform, two callers](#5-trainingserving-skew--one-transform-two-callers)
+6. [Drift detection — the world moved, the model didn't](#6-drift-detection--the-world-moved-the-model-didnt)
 
 ---
 
@@ -336,3 +337,69 @@ parameters.
 > If yes, move it server-side behind shared code. And for any transform that *learned*
 > from data, export its fitted parameters alongside the model — never recompute them
 > from a single request.
+
+## 6. Drift detection — the world moved, the model didn't
+
+**Context:** Stage 5, `src/monitoring/drift.py` + `GET /drift`. A model is frozen at
+training time, but patients keep changing. We compare the recent live requests (rebuilt
+from the prediction audit log) against a sample of the *training* distribution
+(`artifacts/drift_reference.parquet`) using Evidently, and surface data + prediction
+drift as a live report.
+
+**Principle:** *A model assumes tomorrow looks like its training data; drift detection
+is the smoke alarm that tells you that assumption expired — before the labels do.*
+
+### Explanation / analogy
+
+A trained model is a snapshot of the world *as it was*. The danger isn't that it
+crashes when the world changes — it's that it keeps returning confident numbers while
+quietly becoming wrong. Accuracy rots silently.
+
+Think of a **thermostat you calibrated for your old house**. Move it to a drafty cabin
+and it still reads a number and still clicks the heater on — it just clicks at the wrong
+times, and you won't notice until you're cold. Drift detection is periodically holding
+the cabin's actual temperature readings next to the original calibration chart and
+asking: *"are these even the same shape anymore?"* You're not testing whether the
+thermostat is broken (it works fine) — you're testing whether the world it was tuned for
+still exists.
+
+Two things drift, and the distinction matters:
+
+1. **Data drift** — the *inputs* shift. An older population, a new EHR that codes
+   "emergency" differently — feature distributions move away from training. Measured
+   per column: K–S test for numeric features, chi-squared for categoricals.
+2. **Prediction drift** — the *outputs* shift. The risk-score distribution moves (say
+   40% score high-risk instead of the usual ~11%). Often a *symptom* of data drift, but
+   also catches upstream pipeline bugs. We expose it by carrying the model's score as an
+   extra numeric column in the same report.
+
+Mechanics here: the **reference** is the train split scored once at export time; the
+**current** window is rebuilt from `logs/predictions.jsonl` by re-running the same
+`featurize()` the model is served with (so both sides share one feature definition — see
+[note 5](#5-trainingserving-skew--one-transform-two-callers)). `/drift` refuses below 30
+logged requests because the statistical tests are noise on tiny samples.
+
+### Advantages
+
+1. Early warning — you learn the input world changed *now*, not 30 days later when the
+   readmission labels finally arrive.
+2. Localizes the problem — the per-feature report says *which* columns moved, pointing
+   straight at the likely cause (a changed feed, a new population).
+3. Reuses what you already have — the audit log doubles as the drift window and the
+   lineage trail; no separate data capture.
+
+### Tradeoffs
+
+- Drift ≠ decay. It tells you the inputs changed, *not* that the model got worse — the
+  two usually correlate but not always. It's a trigger to investigate, not proof.
+- Sensitive to window size and noisy on small samples; needs a sensible reference and a
+  minimum sample floor.
+- "How much drift is too much?" is a judgement call — a threshold (we use ≥30% of
+  features, or prediction drift) that you'll tune against false-alarm tolerance.
+
+### Rule of thumb
+
+> Any model serving live traffic needs a reference distribution and a periodic "same
+> shape?" check against it. Pick the reference as *exactly what the model learned from*
+> (the train split, not val/test, not "all data"), and treat a drift alarm as "go look,"
+> never as "the model is broken" — confirm against real outcomes before retraining.

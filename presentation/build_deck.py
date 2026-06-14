@@ -236,59 +236,77 @@ def build():
     print(f"wrote {out}  ({len(p.slides)} slides)")
 
 
+def _down(slide, cx, top, height):
+    a = slide.shapes.add_shape(MSO_SHAPE.DOWN_ARROW, Inches(cx - 0.11), Inches(top),
+                               Inches(0.22), Inches(height))
+    a.shadow.inherit = False; a.fill.solid(); a.fill.fore_color.rgb = DEEP
+    a.line.fill.background()
+
+
+def _eyebrow(slide, x, y, text):
+    tf = textbox(slide, x, y, 8.0, 0.32)
+    para(tf, text, 13, ACCENT, bold=True, first=True)
+
+
 def architecture_slide(p):
+    """Faithful, landscape recreation of the ARCHITECTURE.md flow (native shapes)."""
     s = p.slides.add_slide(p.slide_layouts[6]); _bg(s, BG)
     head(s, "Architecture & Data Flow")
+    CX = 13.333 / 2
 
+    # --- Offline plane: pipeline of boxes, each labelled with its output ---
+    _eyebrow(s, 0.58, 1.05, "OFFLINE  —  build pipeline  (dvc repro → MLflow)")
     boxes = [
-        ("Raw data", "101k encounters"),
-        ("Clean", "? → NaN, filter"),
-        ("Features", "engineer() · 48"),
-        ("Train & select", "XGB winner"),
-        ("Export", "model + spec"),
-        ("Serve", "risk + SHAP"),
+        ("Raw data", "diabetic_data.csv"),
+        ("Clean", "cleaned.parquet"),
+        ("Features", "features.parquet · 48"),
+        ("Train + select", "XGB · LGBM · LR"),
+        ("Registry", "model vN"),
     ]
-    bw, bh, gap = 1.78, 1.25, 0.31
+    bw, bh, gap = 2.18, 0.95, 0.32
     total = len(boxes) * bw + (len(boxes) - 1) * gap
     x0 = (13.333 - total) / 2
-    y = 1.95
-    centers = []
+    y = 1.45
+    ends = []
     for i, (title, sub) in enumerate(boxes):
         x = x0 + i * (bw + gap)
         b = rect(s, x, y, bw, bh, ACCENT)
         tfx = b.text_frame; tfx.vertical_anchor = MSO_ANCHOR.MIDDLE
         tfx.margin_top = 0; tfx.margin_bottom = 0
-        para(tfx, title, 14, WHITE, bold=True, first=True, align=PP_ALIGN.CENTER, after=2)
-        para(tfx, sub, 10, CHIP, align=PP_ALIGN.CENTER, after=0)
-        centers.append((x, x + bw))
-    # right arrows in the gaps
+        para(tfx, title, 13, WHITE, bold=True, first=True, align=PP_ALIGN.CENTER, after=1)
+        para(tfx, sub, 9.5, CHIP, align=PP_ALIGN.CENTER, after=0)
+        ends.append(x + bw)
     for i in range(len(boxes) - 1):
-        ax = centers[i][1]
-        a = s.shapes.add_shape(MSO_SHAPE.RIGHT_ARROW, Inches(ax + 0.02),
-                               Inches(y + bh / 2 - 0.11), Inches(gap - 0.04), Inches(0.22))
+        a = s.shapes.add_shape(MSO_SHAPE.RIGHT_ARROW, Inches(ends[i] + 0.02),
+                               Inches(y + bh / 2 - 0.10), Inches(gap - 0.04), Inches(0.20))
         a.shadow.inherit = False; a.fill.solid(); a.fill.fore_color.rgb = DEEP
         a.line.fill.background()
 
-    # flow caption
-    cap = textbox(s, 0.6, 3.45, 12.1, 0.5)
-    para(cap, "Each stage's output is the next stage's input:  cleaned.parquet → "
-         "features.parquet → MLflow model → artifacts/ → live predictions.",
-         12, MUTED, first=True, align=PP_ALIGN.CENTER)
+    # --- bridge: export -> artifacts pill ---
+    _down(s, CX, y + bh + 0.05, 0.40)
+    elbl = textbox(s, CX + 0.18, y + bh + 0.06, 1.6, 0.3)
+    para(elbl, "export_model", 10, MUTED, first=True)
+    pill = rect(s, (13.333 - 7.2) / 2, 2.92, 7.2, 0.72, CHIP, line=LINE)
+    tfp = pill.text_frame; tfp.vertical_anchor = MSO_ANCHOR.MIDDLE
+    para(tfp, "artifacts/   model.joblib  ·  feature_spec.json  ·  drift_reference.parquet",
+         12.5, DEEP, bold=True, first=True, align=PP_ALIGN.CENTER)
 
-    # cross-cutting band
-    band = rect(s, 1.0, 4.5, 11.33, 1.5, PANEL, line=LINE)
+    # --- Online plane: serve ---
+    _down(s, CX, 3.70, 0.40)
+    _eyebrow(s, 0.58, 4.18, "ONLINE  —  serve  (FastAPI in Docker)")
+    serve = rect(s, (13.333 - 4.8) / 2, 4.20, 4.8, 0.9, ACCENT)
+    tfs = serve.text_frame; tfs.vertical_anchor = MSO_ANCHOR.MIDDLE
+    para(tfs, "Serve / predict", 14, WHITE, bold=True, first=True, align=PP_ALIGN.CENTER, after=1)
+    para(tfs, "featurize → model → risk + SHAP", 10, CHIP, align=PP_ALIGN.CENTER)
+
+    # --- cross-cutting band ---
+    _down(s, CX, 5.15, 0.38)
+    band = rect(s, 0.58, 5.55, 12.17, 1.35, PANEL, line=LINE)
     tfb = band.text_frame; tfb.vertical_anchor = MSO_ANCHOR.MIDDLE
-    tfb.margin_left = Inches(0.3)
-    para(tfb, "Monitoring & Governance  (wraps the served model)", 15, ACCENT,
+    para(tfb, "Monitoring & Governance   (wraps the served model)", 15, ACCENT,
          bold=True, first=True, align=PP_ALIGN.CENTER, after=4)
-    para(tfb, "every prediction logged  →  drift · metrics · alerts   |   "
-         "fairness · SHAP · model card · lineage", 13, TEXT, align=PP_ALIGN.CENTER)
-    # down arrow from Serve to band
-    sx = (centers[-1][0] + centers[-1][1]) / 2
-    da = s.shapes.add_shape(MSO_SHAPE.DOWN_ARROW, Inches(sx - 0.11), Inches(y + bh + 0.02),
-                            Inches(0.22), Inches(0.45))
-    da.shadow.inherit = False; da.fill.solid(); da.fill.fore_color.rgb = DEEP
-    da.line.fill.background()
+    para(tfb, "every prediction logged  →  drift · metrics · alerts      |      "
+         "fairness · SHAP · model card · lineage", 12.5, TEXT, align=PP_ALIGN.CENTER)
     return s
 
 

@@ -295,10 +295,13 @@ def architecture_slide(p):
 def modeling_slide(p):
     s = p.slides.add_slide(p.slide_layouts[6]); _bg(s, BG)
     head(s, "Stage 3 — Modeling & Evaluation")
-    tf = textbox(s, 0.6, 1.2, 12.1, 1.6)
+    tf = textbox(s, 0.6, 1.15, 12.1, 1.75)
     para(tf, "DECISIONS", 13, ACCENT, bold=True, first=True, after=6)
-    para(tf, "Split by patient (no leakage) · class weights, not resampling · tune on "
-         "PR-AUC · calibrate probabilities · cost-based threshold.", 14, TEXT)
+    para(tf, "Split by patient (no leakage) · tune on PR-AUC · calibrate probabilities · "
+         "cost-based threshold (0.10).", 14, TEXT, after=5)
+    para(tf, "Handle 11% imbalance by weighting the minority class ≈7.8× in the loss "
+         "(scale_pos_weight = negatives ÷ positives = 61,698 ÷ 7,915) — not resampling, "
+         "which would duplicate patients and break grouped CV.", 13, MUTED)
 
     rows = [
         ["Model (validation)", "PR-AUC", "ROC-AUC", "Recall@p≥30%", "Brier"],

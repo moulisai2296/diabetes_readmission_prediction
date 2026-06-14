@@ -32,3 +32,4 @@ __pycache__/
 # OS / IDE
 .DS_Store
 Thumbs.db
+~$*            # Office lock files

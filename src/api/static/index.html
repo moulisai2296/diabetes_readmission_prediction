@@ -13,16 +13,17 @@
   header { padding:20px 28px; border-bottom:1px solid var(--line); background:var(--card); }
   header h1 { margin:0; font-size:20px; color:var(--accent); }
   header p { margin:4px 0 0; color:var(--muted); font-size:13px; }
-  header nav { margin-top:8px; }
-  header nav a { color:var(--accent); font-size:13px; margin-right:14px; text-decoration:none; }
-  .wrap { display:grid; grid-template-columns:1.4fr 1fr; gap:24px; padding:24px 28px;
-          max-width:1200px; }
-  @media (max-width:900px){ .wrap{ grid-template-columns:1fr; } }
+  header nav { margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; }
+  header nav a { background:#bfe0cc; border:1px solid #9ccbb0; color:#0b5740; font-size:13px;
+                 font-weight:500; padding:6px 12px; border-radius:8px; text-decoration:none; transition:background .15s; }
+  header nav a:hover { background:#aed7bd; }
+  .wrap { padding:24px 28px; max-width:1200px; margin:0 auto; }
+  .fieldsets { display:grid; grid-template-columns:repeat(auto-fit, minmax(290px,1fr)); gap:14px; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px;
           box-shadow:0 1px 3px rgba(11,107,79,.08); }
   h2 { font-size:14px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted);
        margin:0 0 14px; }
-  fieldset { border:1px solid var(--line); border-radius:8px; margin:0 0 16px; padding:12px 14px; }
+  fieldset { border:1px solid var(--line); border-radius:8px; margin:0; padding:12px 14px; align-self:start; }
   legend { color:var(--accent); font-size:12px; padding:0 6px; text-transform:uppercase; letter-spacing:.05em; }
   .grid { display:grid; grid-template-columns:repeat(2,1fr); gap:10px 14px; }
   label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:var(--muted); }
@@ -30,8 +31,9 @@
                   border-radius:6px; padding:7px 8px; font-size:13px; }
   input:focus, select:focus { outline:none; border-color:var(--accent); }
   button { background:var(--accent); color:#ffffff; border:none; border-radius:8px;
-           padding:11px 18px; font-size:14px; font-weight:600; cursor:pointer; width:100%; }
+           padding:12px 18px; font-size:15px; font-weight:600; cursor:pointer; width:100%; margin-top:18px; }
   button:disabled { opacity:.6; cursor:wait; }
+  #result { margin-top:20px; }
   .result-empty { color:var(--muted); font-size:13px; }
   .risk-num { font-size:44px; font-weight:700; margin:4px 0; }
   .badge { display:inline-block; padding:4px 12px; border-radius:999px; font-size:13px; font-weight:600; }
@@ -57,6 +59,7 @@
 
 <div class="wrap">
   <form id="form" class="card">
+    <div class="fieldsets">
     <fieldset>
       <legend>Demographics</legend>
       <div class="grid">
@@ -168,6 +171,7 @@
           </select></label>
       </div>
     </fieldset>
+    </div>
 
     <button id="submit" type="submit">Predict readmission risk</button>
   </form>

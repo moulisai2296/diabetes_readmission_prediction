@@ -1,9 +1,10 @@
-"""Build the demo presentation (PPTX) in the project's bottle-green palette.
+"""Build the demo deck (PPTX) — decisions & outcomes, stage by stage.
 
-Numbers are pulled from the real artifacts where possible (model report) and the
-documented Stage-3 comparison. Run:
+Strict layout grid, bottle-green palette, a native shapes-and-arrows architecture
+diagram (no raster image). Numbers come from final_model_report.json + the Stage-3
+comparison. No API/endpoint detail — the live demo covers the product itself.
 
-  uv run python presentation/build_deck.py    # -> presentation/diabetes_readmission_demo.pptx
+  uv run python presentation/build_deck.py   # -> presentation/readmission_demo.pptx
 """
 
 from __future__ import annotations
@@ -13,43 +14,44 @@ from pathlib import Path
 
 from pptx import Presentation
 from pptx.dml.color import RGBColor
+from pptx.enum.shapes import MSO_SHAPE
 from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 from pptx.util import Inches, Pt
 
 ROOT = Path(__file__).resolve().parents[1]
 HERE = ROOT / "presentation"
 
-# --- palette (matches the UI) ------------------------------------------------
-ACCENT = RGBColor(0x0B, 0x6B, 0x4F)   # bottle green
-BG = RGBColor(0xD7, 0xE9, 0xDD)       # light bottle green
+# palette (matches the UI)
+ACCENT = RGBColor(0x0B, 0x6B, 0x4F)
+DEEP = RGBColor(0x07, 0x4D, 0x39)
+BG = RGBColor(0xD7, 0xE9, 0xDD)
 WHITE = RGBColor(0xFF, 0xFF, 0xFF)
 TEXT = RGBColor(0x16, 0x26, 0x1D)
 MUTED = RGBColor(0x5A, 0x6F, 0x63)
 PANEL = RGBColor(0xEE, 0xF5, 0xF0)
-CHIP = RGBColor(0xBF, 0xE0, 0xCC)
-RED = RGBColor(0xC0, 0x39, 0x2B)
+CHIP = RGBColor(0xCF, 0xE6, 0xD8)
+LINE = RGBColor(0xB6, 0xD2, 0xC1)
 
 SW, SH = Inches(13.333), Inches(7.5)
-report = json.loads((ROOT / "src/models/final_model_report.json").read_text())
-ta = report["test"]["at_threshold"]
-t = report["test"]
-cm = report["cost_model"]
+R = json.loads((ROOT / "src/models/final_model_report.json").read_text())
+TA, T, CM = R["test"]["at_threshold"], R["test"], R["cost_model"]
 
 
-def new_deck() -> Presentation:
-    prs = Presentation()
-    prs.slide_width, prs.slide_height = SW, SH
-    return prs
+def deck() -> Presentation:
+    p = Presentation()
+    p.slide_width, p.slide_height = SW, SH
+    return p
 
 
-def _bg(slide, color=BG):
+def _bg(slide, color):
     slide.background.fill.solid()
     slide.background.fill.fore_color.rgb = color
 
 
-def _box(slide, l, tp, w, h, fill=None, line=None):
-    from pptx.enum.shapes import MSO_SHAPE
-    shp = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, l, tp, w, h)
+def rect(slide, l, t, w, h, fill, line=None, rounded=True, shadow=False):
+    shp = slide.shapes.add_shape(
+        MSO_SHAPE.ROUNDED_RECTANGLE if rounded else MSO_SHAPE.RECTANGLE,
+        Inches(l), Inches(t), Inches(w), Inches(h))
     shp.shadow.inherit = False
     if fill is None:
         shp.fill.background()
@@ -58,237 +60,315 @@ def _box(slide, l, tp, w, h, fill=None, line=None):
     if line is None:
         shp.line.fill.background()
     else:
-        shp.line.color.rgb = line; shp.line.width = Pt(1)
+        shp.line.color.rgb = line; shp.line.width = Pt(1.25)
     return shp
 
 
-def title_slide(prs, title, subtitle, footer):
-    s = prs.slides.add_slide(prs.slide_layouts[6])
-    _bg(s, ACCENT)
-    tb = s.shapes.add_textbox(Inches(0.9), Inches(2.4), Inches(11.5), Inches(2))
-    tf = tb.text_frame; tf.word_wrap = True
-    p = tf.paragraphs[0]; p.text = title
-    p.font.size = Pt(40); p.font.bold = True; p.font.color.rgb = WHITE
-    p2 = tf.add_paragraph(); p2.text = subtitle
-    p2.font.size = Pt(20); p2.font.color.rgb = CHIP
-    fb = s.shapes.add_textbox(Inches(0.9), Inches(6.6), Inches(11.5), Inches(0.6))
-    fp = fb.text_frame.paragraphs[0]; fp.text = footer
-    fp.font.size = Pt(13); fp.font.color.rgb = CHIP
+def textbox(slide, l, t, w, h, anchor=MSO_ANCHOR.TOP):
+    tb = slide.shapes.add_textbox(Inches(l), Inches(t), Inches(w), Inches(h))
+    tb.text_frame.word_wrap = True
+    tb.text_frame.vertical_anchor = anchor
+    return tb.text_frame
+
+
+def para(tf, text, size, color, bold=False, first=False, align=PP_ALIGN.LEFT,
+         after=6, bullet=False, indent=False):
+    p = tf.paragraphs[0] if first else tf.add_paragraph()
+    p.text = ("•  " if bullet and not indent else "–  " if indent else "") + text
+    p.font.size = Pt(size); p.font.color.rgb = color; p.font.bold = bold
+    p.alignment = align; p.space_after = Pt(after)
+    if indent:
+        p.level = 1
+    return p
+
+
+def head(slide, title, n=None):
+    bar = rect(slide, 0, 0, 13.333, 0.95, ACCENT, rounded=False)
+    tf = bar.text_frame; tf.margin_left = Inches(0.55); tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+    para(tf, title, 25, WHITE, bold=True, first=True)
+
+
+def title_slide(p):
+    s = p.slides.add_slide(p.slide_layouts[6]); _bg(s, ACCENT)
+    rect(s, 0.7, 2.25, 0.18, 2.4, CHIP)  # accent stripe
+    tf = textbox(s, 1.1, 2.3, 11.3, 2.4)
+    para(tf, "Diabetes 30-Day Readmission Prediction", 40, WHITE, bold=True, first=True)
+    para(tf, "Decisions, outcomes, and the system — stage by stage", 20, CHIP, after=0)
+    tf2 = textbox(s, 1.1, 6.5, 11.3, 0.6)
+    para(tf2, "Care-team decision support   ·   UCI Diabetes 130-US Hospitals (1999–2008)",
+         13, CHIP, first=True)
     return s
 
 
-def content_slide(prs, title):
-    s = prs.slides.add_slide(prs.slide_layouts[6])
-    _bg(s)
-    bar = _box(s, 0, 0, SW, Inches(1.0), fill=ACCENT)
-    tf = bar.text_frame; tf.word_wrap = True
-    tf.margin_left = Inches(0.6); tf.vertical_anchor = MSO_ANCHOR.MIDDLE
-    p = tf.paragraphs[0]; p.text = title
-    p.font.size = Pt(26); p.font.bold = True; p.font.color.rgb = WHITE
+def stage_slide(p, title, decisions, out_title, outcomes):
+    """Consistent template: decisions (left) → outcome card (right)."""
+    s = p.slides.add_slide(p.slide_layouts[6]); _bg(s, BG)
+    head(s, title)
+    tf = textbox(s, 0.6, 1.3, 7.0, 5.7)
+    para(tf, "KEY DECISIONS", 14, ACCENT, bold=True, first=True, after=10)
+    for d in decisions:
+        para(tf, d.strip(), 15 if not d.startswith("  ") else 13,
+             TEXT if not d.startswith("  ") else MUTED,
+             bullet=not d.startswith("  "), indent=d.startswith("  "), after=7)
+    rect(s, 8.0, 1.35, 4.73, 5.5, WHITE, line=LINE)
+    rect(s, 8.0, 1.35, 4.73, 0.55, ACCENT)
+    cap = rect(s, 8.0, 1.35, 4.73, 0.55, ACCENT)
+    cap.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
+    para(cap.text_frame, "  " + out_title, 14, WHITE, bold=True, first=True)
+    tf2 = textbox(s, 8.25, 2.1, 4.25, 4.6)
+    for i, o in enumerate(outcomes):
+        para(tf2, o.strip(), 14, TEXT, bullet=True, first=(i == 0), after=9)
     return s
 
 
-def bullets(slide, l, tp, w, h, items, size=15, title=None, title_color=ACCENT):
-    tb = slide.shapes.add_textbox(l, tp, w, h)
-    tf = tb.text_frame; tf.word_wrap = True
-    first = True
-    if title:
-        p = tf.paragraphs[0]; p.text = title
-        p.font.size = Pt(15); p.font.bold = True; p.font.color.rgb = title_color
-        first = False
-    for it in items:
-        indent = it.startswith("  ")
-        text = it.strip()
-        p = tf.paragraphs[0] if first else tf.add_paragraph()
-        first = False
-        p.text = ("– " if indent else "• ") + text
-        p.font.size = Pt(size - 2 if indent else size)
-        p.font.color.rgb = MUTED if indent else TEXT
-        p.level = 1 if indent else 0
-        p.space_after = Pt(4)
-    return tb
+def build():
+    p = deck()
+    title_slide(p)
+
+    # 2. Problem & framing decisions
+    s = p.slides.add_slide(p.slide_layouts[6]); _bg(s, BG)
+    head(s, "The Problem & Framing Decisions")
+    tf = textbox(s, 0.6, 1.3, 12.1, 5.6)
+    para(tf, "Goal: at discharge, flag each diabetic patient likely to be readmitted within "
+         "30 days, so care teams can target follow-up.", 18, TEXT, first=True, after=16)
+    para(tf, "Target = binary “readmitted < 30 days” (≈11% of patients) — matches the real "
+         "action (flag for follow-up).", 16, TEXT, bullet=True, after=10)
+    para(tf, "Accuracy is the wrong metric — predicting “never readmit” scores 89%. We judge "
+         "on recall, precision, calibration, and net savings.", 16, TEXT, bullet=True, after=10)
+    para(tf, "The model is ~20% of the work; the system around it — reproducible pipeline, "
+         "serving, monitoring, governance — is the other 80%.", 16, TEXT, bullet=True, after=10)
+    para(tf, "Output is decision support, never an automatic action: a clinician sees the risk "
+         "and the reasons, and decides.", 16, TEXT, bullet=True)
+
+    # 3. Architecture (native shapes)
+    architecture_slide(p)
+
+    # 4. Stage 1 — Data
+    stage_slide(p, "Stage 1 — Data Engineering",
+        ["Missing values coded as “?” → treated as NaN, not blanks",
+         "Drop weight (~97% missing); justify payer_code / specialty",
+         "A missing A1C/glucose test is information →",
+         "  kept as “NotMeasured”, never imputed to normal",
+         "Exclude encounters that can’t be readmitted",
+         "  (expired / hospice discharge)",
+         "Define the target once, in one place"],
+        "Outcome",
+        ["99,340 clean encounters (~70k patients)",
+         "Validated cleaning pipeline (pandera), DVC-tracked",
+         "Reproducible: one command rebuilds the data",
+         "Missingness preserved as signal, not noise"])
+
+    # 5. Stage 2 — Features
+    stage_slide(p, "Stage 2 — Feature Engineering",
+        ["Group ICD-9 diag_1/2/3 into clinical buckets",
+         "  (Circulatory, Respiratory, Diabetes, …)",
+         "Roll up utilization: total_prior_visits, active meds,",
+         "  medication changes; ordinal age",
+         "Collapse rare specialty / payer categories to “Other”",
+         "ONE shared transform used at train and serve time"],
+        "Outcome",
+        ["48 model features from ~26 raw inputs",
+         "Server derives engineered features — caller sends facts",
+         "No training/serving skew by construction",
+         "Every feature + rationale logged in FEATURES.md"])
+
+    # 6. Stage 3 — Modeling (table)
+    modeling_slide(p)
+
+    # 7. Stage 4 — Packaging
+    stage_slide(p, "Stage 4 — Packaging & Deployment",
+        ["Export model + feature spec as one matched artifact",
+         "  (serving never touches MLflow or training data)",
+         "Containerize the service; whole stack in one command",
+         "Bundle metrics + dashboards with the service",
+         "Cloud Run as the deploy target (scales to zero)",
+         "Keep the previous image for one-command rollback"],
+        "Outcome",
+        ["Self-contained image — model travels with the code",
+         "One command runs API + monitoring locally",
+         "Same image deploys unchanged to the cloud",
+         "Simple, documented rollback path"])
+
+    # 8. Stage 5 — Monitoring
+    stage_slide(p, "Stage 5 — Observability & Monitoring",
+        ["Log every prediction (inputs, score, version, time)",
+         "Track service health: latency, errors, request rate",
+         "Detect drift vs the training distribution",
+         "  (data drift + prediction-score drift)",
+         "Alert a human on errors / unusual flag rate",
+         "Define a concrete retraining trigger"],
+        "Outcome",
+        ["Live drift report (recent traffic vs training)",
+         "Dashboards for service & model behaviour",
+         "Alerts fire when something moves",
+         "Retrain when: ≥30% feature drift, recall < 0.55",
+         "on new labels, or quarterly"])
+
+    # 9. Stage 6 — Governance
+    stage_slide(p, "Stage 6 — Governance & Re-evaluation",
+        ["Audit fairness across age, gender, race",
+         "  (per-group recall & selection rate, not averages)",
+         "Explain globally and per patient (SHAP)",
+         "Trace lineage: data + code + model version",
+         "Keep the human in the loop for borderline cases",
+         "Write it down: model card + reflection"],
+        "Outcome",
+        ["Gender essentially fair (recall gap 0.045)",
+         "Race / age gaps disclosed (small subgroups, young)",
+         "Top drivers: prior inpatient visits, discharge type",
+         "Model card + fairness report generated from code"])
+
+    # 10. Outcomes summary
+    outcomes_slide(p)
+
+    # 11. Demo
+    s = p.slides.add_slide(p.slide_layouts[6]); _bg(s, ACCENT)
+    tf = textbox(s, 0.9, 2.2, 11.5, 3.2, anchor=MSO_ANCHOR.TOP)
+    para(tf, "Live Demo", 40, WHITE, bold=True, first=True, after=18)
+    para(tf, "Enter a patient → instant risk, a follow-up flag, and the factors behind it",
+         20, CHIP, bullet=True, after=10)
+    para(tf, "Governance view: model card, evaluation, fairness, explanations",
+         20, CHIP, bullet=True, after=10)
+    para(tf, "Monitoring: live dashboards and the drift report", 20, CHIP, bullet=True)
+
+    out = HERE / "readmission_demo.pptx"
+    p.save(out)
+    print(f"wrote {out}  ({len(p.slides)} slides)")
 
 
-def table(slide, l, tp, w, rows, col_w, highlight=None, header_fill=ACCENT, fsize=12):
-    nrows, ncols = len(rows), len(rows[0])
-    h = Inches(0.36 * nrows)
-    gt = slide.shapes.add_table(nrows, ncols, l, tp, w, h).table
+def architecture_slide(p):
+    s = p.slides.add_slide(p.slide_layouts[6]); _bg(s, BG)
+    head(s, "Architecture & Data Flow")
+
+    boxes = [
+        ("Raw data", "101k encounters"),
+        ("Clean", "? → NaN, filter"),
+        ("Features", "engineer() · 48"),
+        ("Train & select", "XGB winner"),
+        ("Export", "model + spec"),
+        ("Serve", "risk + SHAP"),
+    ]
+    bw, bh, gap = 1.78, 1.25, 0.31
+    total = len(boxes) * bw + (len(boxes) - 1) * gap
+    x0 = (13.333 - total) / 2
+    y = 1.95
+    centers = []
+    for i, (title, sub) in enumerate(boxes):
+        x = x0 + i * (bw + gap)
+        b = rect(s, x, y, bw, bh, ACCENT)
+        tfx = b.text_frame; tfx.vertical_anchor = MSO_ANCHOR.MIDDLE
+        tfx.margin_top = 0; tfx.margin_bottom = 0
+        para(tfx, title, 14, WHITE, bold=True, first=True, align=PP_ALIGN.CENTER, after=2)
+        para(tfx, sub, 10, CHIP, align=PP_ALIGN.CENTER, after=0)
+        centers.append((x, x + bw))
+    # right arrows in the gaps
+    for i in range(len(boxes) - 1):
+        ax = centers[i][1]
+        a = s.shapes.add_shape(MSO_SHAPE.RIGHT_ARROW, Inches(ax + 0.02),
+                               Inches(y + bh / 2 - 0.11), Inches(gap - 0.04), Inches(0.22))
+        a.shadow.inherit = False; a.fill.solid(); a.fill.fore_color.rgb = DEEP
+        a.line.fill.background()
+
+    # flow caption
+    cap = textbox(s, 0.6, 3.45, 12.1, 0.5)
+    para(cap, "Each stage's output is the next stage's input:  cleaned.parquet → "
+         "features.parquet → MLflow model → artifacts/ → live predictions.",
+         12, MUTED, first=True, align=PP_ALIGN.CENTER)
+
+    # cross-cutting band
+    band = rect(s, 1.0, 4.5, 11.33, 1.5, PANEL, line=LINE)
+    tfb = band.text_frame; tfb.vertical_anchor = MSO_ANCHOR.MIDDLE
+    tfb.margin_left = Inches(0.3)
+    para(tfb, "Monitoring & Governance  (wraps the served model)", 15, ACCENT,
+         bold=True, first=True, align=PP_ALIGN.CENTER, after=4)
+    para(tfb, "every prediction logged  →  drift · metrics · alerts   |   "
+         "fairness · SHAP · model card · lineage", 13, TEXT, align=PP_ALIGN.CENTER)
+    # down arrow from Serve to band
+    sx = (centers[-1][0] + centers[-1][1]) / 2
+    da = s.shapes.add_shape(MSO_SHAPE.DOWN_ARROW, Inches(sx - 0.11), Inches(y + bh + 0.02),
+                            Inches(0.22), Inches(0.45))
+    da.shadow.inherit = False; da.fill.solid(); da.fill.fore_color.rgb = DEEP
+    da.line.fill.background()
+    return s
+
+
+def modeling_slide(p):
+    s = p.slides.add_slide(p.slide_layouts[6]); _bg(s, BG)
+    head(s, "Stage 3 — Modeling & Evaluation")
+    tf = textbox(s, 0.6, 1.2, 12.1, 1.6)
+    para(tf, "DECISIONS", 13, ACCENT, bold=True, first=True, after=6)
+    para(tf, "Split by patient (no leakage) · class weights, not resampling · tune on "
+         "PR-AUC · calibrate probabilities · cost-based threshold.", 14, TEXT)
+
+    rows = [
+        ["Model (validation)", "PR-AUC", "ROC-AUC", "Recall@p≥30%", "Brier"],
+        ["Logistic regression (baseline)", "0.221", "0.667", "0.189", "0.225"],
+        ["XGBoost  — winner", "0.239", "0.680", "0.216", "0.206"],
+        ["LightGBM", "0.239", "0.675", "0.215", "0.201"],
+        ["XGBoost + calibration", "0.236", "0.680", "0.205", "0.097"],
+    ]
+    col_w = [Inches(4.0), Inches(1.5), Inches(1.5), Inches(2.0), Inches(1.5)]
+    gt = s.shapes.add_table(len(rows), len(rows[0]), Inches(1.0), Inches(2.95),
+                            Inches(10.5), Inches(0.45 * len(rows))).table
     for j, cw in enumerate(col_w):
         gt.columns[j].width = cw
     for i, row in enumerate(rows):
         for j, val in enumerate(row):
-            c = gt.cell(i, j)
-            c.text = str(val)
-            para = c.text_frame.paragraphs[0]
-            para.font.size = Pt(fsize)
-            para.alignment = PP_ALIGN.LEFT if j == 0 else PP_ALIGN.CENTER
+            c = gt.cell(i, j); c.text = str(val)
+            pa = c.text_frame.paragraphs[0]
+            pa.font.size = Pt(13); pa.alignment = PP_ALIGN.LEFT if j == 0 else PP_ALIGN.CENTER
+            c.fill.solid()
             if i == 0:
-                c.fill.solid(); c.fill.fore_color.rgb = header_fill
-                para.font.color.rgb = WHITE; para.font.bold = True
+                c.fill.fore_color.rgb = ACCENT; pa.font.color.rgb = WHITE; pa.font.bold = True
             else:
-                c.fill.solid()
-                c.fill.fore_color.rgb = CHIP if highlight == i else PANEL
-                para.font.color.rgb = TEXT
-                para.font.bold = highlight == i
-    return gt
+                hi = (i == 2)
+                c.fill.fore_color.rgb = CHIP if hi else WHITE
+                pa.font.color.rgb = TEXT; pa.font.bold = hi
+
+    tf2 = textbox(s, 0.6, 5.7, 12.1, 1.3)
+    para(tf2, f"OUTCOME — one-time test: recall {TA['recall']:.0%} of readmissions caught, "
+         f"PR-AUC {T['test_pr_auc']:.3f}, Brier {T['test_brier']:.3f} (calibration fixed "
+         "0.206 → 0.097).", 15, TEXT, bold=True, first=True, after=6)
+    para(tf2, f"Threshold 0.10 from real costs: flag when risk × {CM['preventable_fraction']} "
+         f"× ${CM['readmission_cost']:,} > ${CM['intervention_cost']:,}. Low precision is "
+         "deliberate — a cheap call vs a costly readmission.", 13, MUTED)
+    return s
 
 
-def card(slide, l, tp, w, h, heading, items, size=14):
-    _box(slide, l, tp, w, h, fill=WHITE, line=RGBColor(0xC2, 0xD6, 0xC9))
-    bullets(slide, l + Inches(0.25), tp + Inches(0.18), w - Inches(0.5), h - Inches(0.3),
-            items, size=size, title=heading)
+def outcomes_slide(p):
+    s = p.slides.add_slide(p.slide_layouts[6]); _bg(s, BG)
+    head(s, "Outcomes & Honest Limitations")
+    # three metric tiles
+    tiles = [
+        (f"{TA['recall']:.0%}", "of 30-day readmissions flagged"),
+        (f"${TA['net_savings_per_1000']:,.0f}", "net savings per 1,000 patients"),
+        (f"{T['test_brier']:.3f}", "Brier — calibrated, honest %"),
+    ]
+    tw, gap = 3.7, 0.5
+    x0 = (13.333 - (3 * tw + 2 * gap)) / 2
+    for i, (big, lab) in enumerate(tiles):
+        x = x0 + i * (tw + gap)
+        rect(s, x, 1.35, tw, 1.7, WHITE, line=LINE)
+        tf = textbox(s, x + 0.1, 1.45, tw - 0.2, 1.5, anchor=MSO_ANCHOR.MIDDLE)
+        para(tf, big, 34, ACCENT, bold=True, first=True, align=PP_ALIGN.CENTER, after=2)
+        para(tf, lab, 13, MUTED, align=PP_ALIGN.CENTER)
 
+    tf = textbox(s, 0.6, 3.5, 6.0, 3.4)
+    para(tf, "WHAT WORKS", 14, ACCENT, bold=True, first=True, after=8)
+    for it in ["End-to-end, reproducible pipeline (data → governance)",
+               "Calibrated, explainable, cost-aligned predictions",
+               "Live monitoring, drift, and a retraining trigger",
+               "Fairness audited and disclosed; model card from code"]:
+        para(tf, it, 14, TEXT, bullet=True, after=7)
 
-def build():
-    prs = new_deck()
-
-    title_slide(
-        prs,
-        "Diabetes 30-Day Readmission Prediction",
-        "End-to-end ML system — demo walkthrough",
-        "Care-team decision support  ·  UCI Diabetes 130-US Hospitals (1999–2008)  ·  ~101k encounters",
-    )
-
-    # 1. EDA + column segregation
-    s = content_slide(prs, "1.  EDA & Column Segregation")
-    bullets(s, Inches(0.6), Inches(1.25), Inches(5.4), Inches(5.8), [
-        "101,766 encounters (1 row = 1 hospital stay), ~50 columns",
-        "Target: readmitted ∈ {<30, >30, NO} → binary '<30' = 1",
-        "  Positive rate ~11.3% → accuracy is a trap",
-        "Missing coded as '?' → treated as NaN on load",
-        "weight ~97% missing → dropped (justified)",
-        "A missing A1C/glucose test is information →",
-        "  kept as its own 'NotMeasured' category, never imputed",
-        "Excluded encounters that can't be readmitted",
-        "  (expired / hospice discharge)",
-    ], size=15, title="Dataset & traps")
-    card(s, Inches(6.3), Inches(1.25), Inches(6.4), Inches(5.7), "Columns grouped into blocks", [
-        "Demographics: race, gender, age",
-        "Encounter: time_in_hospital, num_lab_procedures,",
-        "  num_procedures, num_medications, number_diagnoses, medical_specialty",
-        "Prior utilization: number_outpatient / emergency / inpatient, payer_code",
-        "Diagnoses & labs: diag_1/2/3, max_glu_serum, A1Cresult",
-        "Medications: 21 drug flags + change + diabetesMed",
-        "Admission / discharge: type, source, disposition",
-    ], size=13)
-
-    # 2. Engineered features
-    s = content_slide(prs, "2.  Engineered Features")
-    bullets(s, Inches(0.6), Inches(1.25), Inches(12.1), Inches(5.6), [
-        "ICD-9 diag_1/2/3 → clinical buckets (Strack et al.): Circulatory, Respiratory,",
-        "  Digestive, Diabetes, Injury, Musculoskeletal, Genitourinary, Neoplasms, Other",
-        "  → diag_1_group, diag_2_group, diag_3_group, diabetes_diag_any",
-        "total_prior_visits = number_outpatient + number_emergency + number_inpatient",
-        "n_med_changes, n_active_meds  → summarized from the 21 medication columns",
-        "age_ordinal  → age bracket mapped to an ordinal 0–9",
-        "lump_rare: rare medical_specialty / payer_code (<1% of train) collapsed to 'Other'",
-        "One shared engineer() runs at BOTH train and serve time → no training/serving skew",
-        "Every feature + source + rationale logged in src/features/FEATURES.md",
-    ], size=16)
-
-    # 3. Features going to the model
-    s = content_slide(prs, "3.  Features Going to the Model")
-    bullets(s, Inches(0.6), Inches(1.25), Inches(6.0), Inches(5.6), [
-        "48 model features = 13 numeric + 35 categorical",
-        "Numeric: time_in_hospital, num_lab_procedures, num_procedures,",
-        "  num_medications, number_outpatient/emergency/inpatient,",
-        "  number_diagnoses, total_prior_visits, n_med_changes,",
-        "  n_active_meds, diabetes_diag_any, age_ordinal",
-        "Categorical: 21 medication flags + race, gender, labs,",
-        "  admission/discharge, specialty, payer, diag groups",
-    ], size=14, title="The 48-feature matrix → features.parquet")
-    card(s, Inches(6.9), Inches(1.25), Inches(5.8), Inches(5.6), "26 human inputs → 48 features", [
-        "Care team types ~26 facts; only gender & age required",
-        "Server DERIVES ~8 engineered features (not typed)",
-        "  visit counts → total_prior_visits; codes → diag groups; age → age_ordinal",
-        "18 of 21 drugs default to 'No' (not prescribed)",
-        "  form surfaces the common ones (metformin, glyburide, insulin)",
-        "XGBoost native-categorical: category order frozen in feature_spec.json",
-    ], size=13)
-
-    # 4. Modeling comparison
-    s = content_slide(prs, "4.  Modeling — Baseline vs Advanced")
-    table(s, Inches(0.6), Inches(1.35), Inches(8.4), [
-        ["model (validation)", "PR-AUC", "ROC-AUC", "recall@p≥30%", "Brier"],
-        ["Logistic regression (baseline)", "0.221", "0.667", "0.189", "0.225"],
-        ["XGBoost  (winner)", "0.239", "0.680", "0.216", "0.206"],
-        ["LightGBM", "0.239", "0.675", "0.215", "0.201"],
-        ["XGBoost + isotonic calibration", "0.236", "0.680", "0.205", "0.097"],
-    ], col_w=[Inches(3.4), Inches(1.25), Inches(1.25), Inches(1.5), Inches(1.0)], highlight=2)
-    bullets(s, Inches(0.6), Inches(4.4), Inches(12.1), Inches(2.7), [
-        "Split by patient_nbr (GroupShuffleSplit); tuned with StratifiedGroupKFold → no leakage",
-        "Imbalance via class weights (not resampling) — keeps grouped CV & calibration valid",
-        "Tuned on PR-AUC, not ROC-AUC — at 11% positives PR-AUC is what the care team feels",
-        "Calibration fixed the Brier disaster: 0.206 → 0.097 with ranking intact (honest %)",
-    ], size=14)
-
-    # 5. Model evaluation summary
-    s = content_slide(prs, "5.  Model Evaluation (held-out test)")
-    table(s, Inches(0.6), Inches(1.35), Inches(6.6), [
-        ["metric", "value"],
-        ["Recall @ 0.10", f"{ta['recall']:.1%}"],
-        ["Precision @ 0.10", f"{ta['precision']:.1%}"],
-        ["Flag rate", f"{ta['flag_rate']:.1%}"],
-        ["PR-AUC", f"{t['test_pr_auc']:.3f}"],
-        ["ROC-AUC", f"{t['test_roc_auc']:.3f}"],
-        ["Brier", f"{t['test_brier']:.3f}"],
-        ["Net savings / 1,000", f"${ta['net_savings_per_1000']:,.0f}"],
-    ], col_w=[Inches(4.4), Inches(2.2)], highlight=1, fsize=13)
-    bullets(s, Inches(0.6), Inches(5.0), Inches(6.6), Inches(2.2), [
-        f"Decision rule: risk × {cm['preventable_fraction']} × ${cm['readmission_cost']:,}",
-        f"  > ${cm['intervention_cost']:,}  →  flag when risk ≥ {report['threshold']}",
-        "Low precision is BY DESIGN — a $300 call vs a $15k readmission",
-    ], size=13)
-    if (ROOT / "governance/shap_global_importance.png").exists():
-        s.shapes.add_picture(str(ROOT / "governance/shap_global_importance.png"),
-                             Inches(7.5), Inches(1.3), height=Inches(5.5))
-
-    # 6. Monitoring
-    s = content_slide(prs, "6.  Monitoring — What & How")
-    card(s, Inches(0.6), Inches(1.25), Inches(6.0), Inches(5.7), "Service & model metrics", [
-        "Prometheus scrapes /metrics every 15s → Grafana",
-        "  request rate, p95 latency, error rate, flag rate, score distribution",
-        "Every prediction logged to logs/predictions.jsonl",
-        "  inputs + score + version + timestamp (audit + drift window)",
-        "Alerts (Prometheus rules):",
-        "  APIDown · HighErrorRate · HighPredictLatencyP95 · FlagRateSurge",
-    ], size=13)
-    card(s, Inches(6.9), Inches(1.25), Inches(5.8), Inches(5.7), "Drift & retraining", [
-        "GET /drift — live Evidently report",
-        "  recent requests vs the training baseline",
-        "  data drift + prediction (score) drift",
-        "Retraining trigger (concrete):",
-        "  ≥30% of features drift, or prediction drift",
-        "  recall < 0.55 on newly labelled data",
-        "  quarterly floor regardless",
-    ], size=13)
-
-    # 7. Architecture
-    s = content_slide(prs, "7.  Architecture & Data Flow")
-    if (HERE / "architecture.png").exists():
-        pic = s.shapes.add_picture(str(HERE / "architecture.png"), 0, Inches(1.15), height=Inches(6.1))
-        pic.left = int((SW - pic.width) / 2)
-    bullets(s, Inches(0.4), Inches(7.0), Inches(12.5), Inches(0.5), [
-        "Offline plane (dvc repro → MLflow → export) feeds artifacts/; online plane serves them. "
-        "Monitoring & governance read the audit log and the trained model.",
-    ], size=11)
-
-    # 8. Demo
-    s = content_slide(prs, "8.  Live Demo")
-    bullets(s, Inches(0.6), Inches(1.4), Inches(12.1), Inches(5.6), [
-        "/            demo UI — enter a patient, get risk + flag + SHAP factors",
-        "/predict     JSON API — calibrated risk, flag, top contributing factors",
-        "/governance  tabs: Model Card · Model Evaluation · Fairness Audit · SHAP",
-        "/drift       live Evidently data + prediction drift report",
-        "Grafana  (:3000)   service & model dashboards",
-        "Prometheus (:9090)  metrics & firing alerts",
-        "",
-        "One command runs the whole stack:  docker compose up --build",
-    ], size=18)
-
-    out = HERE / "diabetes_readmission_demo.pptx"
-    prs.save(out)
-    print(f"wrote {out}")
+    tf2 = textbox(s, 6.9, 3.5, 5.8, 3.4)
+    para(tf2, "LIMITATIONS", 14, ACCENT, bold=True, first=True, after=8)
+    for it in ["1999–2008 / ICD-9 data — retrain before real use",
+               "Low precision by design (high-recall triage)",
+               "Weaker for young & rare subgroups",
+               "Predicts risk, not clinical need"]:
+        para(tf2, it, 14, TEXT, bullet=True, after=7)
+    return s
 
 
 if __name__ == "__main__":

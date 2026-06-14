@@ -1,0 +1,30 @@
+flowchart TD
+    subgraph OFF["Offline / training plane — dvc repro"]
+        direction LR
+        raw["raw CSVs (DVC)<br/>diabetic_data + IDS_mapping"]
+        cleaned["cleaned.parquet"]
+        features["features.parquet"]
+        splits["splits/<br/>train · val · test"]
+        train["train + finalize<br/>(MLflow)"]
+        reg["MLflow registry<br/>readmission-risk vN"]
+        raw -->|clean.py| cleaned -->|build_features.py| features -->|split.py| splits --> train --> reg
+    end
+
+    art["artifacts/<br/>model.joblib · feature_spec.json<br/>drift_reference.parquet"]
+    reg -->|export_model.py| art
+
+    subgraph ON["Online / serving plane — FastAPI in Docker"]
+        predict["/predict<br/>featurize() → model →<br/>risk + flag + SHAP"]
+        log["logs/predictions.jsonl"]
+        metrics["/metrics"]
+        drift["/drift<br/>(Evidently)"]
+        gov["/governance"]
+        ui["/ demo UI"]
+        predict --> log
+        predict --> metrics
+        log --> drift
+    end
+
+    art --> predict
+    art -. baseline .-> drift
+    metrics --> prom["Prometheus<br/>+ alerts.yml"] --> graf["Grafana"]
